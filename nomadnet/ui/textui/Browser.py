@@ -1562,9 +1562,13 @@ class Browser:
             if self.saved_file_name == None: resp_size = self.response_size
             else:                            resp_size = self.saved_file_size
 
-            stats_string = "  "+self.g["page"]+size_str(resp_size)
-            stats_string += "   "+self.g["arrow_d"]+size_str(self.response_transfer_size)+" in "+response_time_str
-            stats_string += "s   "+self.g["speed"]+size_str(self.response_transfer_size/self.response_time, suffix="b")+"/s"
+            if resp_size:
+                stats_string = "  "+self.g["page"]+size_str(resp_size)
+            if self.response_transfer_size:
+                stats_string += "   "+self.g["arrow_d"]+size_str(self.response_transfer_size)+" in "+response_time_str
+            if self.response_transfer_size and self.response_time:
+                stats_string += "s   "+self.g["speed"]+size_str(self.response_transfer_size/self.response_time, suffix="b")+"/s"
+
         elif self.loaded_from_cache:
             stats_string = " (cached)"
         else:
