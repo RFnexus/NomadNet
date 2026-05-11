@@ -59,6 +59,13 @@ THEMES = {
             ("placeholder",                 "dark gray", "default",                 "default",                  "dark gray", "default"),
             ("placeholder_text",            "dark gray", "default",                 "default",                  "dark gray", "default"),
             ("error",                       "light red,blink",                      "default", "blink",         "#f44,blink", "default"),
+            ("irc_ts",                      "dark gray", "default",                 "default",                  "#888", "default"),
+            ("irc_nick_self",               "light green", "default",               "default",                  "#6c5", "default"),
+            ("irc_nick_peer",               "light cyan", "default",                "default",                  "#3cd", "default"),
+            ("irc_notice",                  "yellow", "default",                    "default",                  "#fd3", "default"),
+            ("irc_error",                   "light red", "default",                 "default",                  "#f55", "default"),
+            ("irc_system",                  "dark gray", "default",                 "default",                  "#888", "default"),
+            ("irc_mention",                 "light red,bold", "default",            "bold",                     "#fb4,bold", "default"),
 
         ],
     },
@@ -103,7 +110,14 @@ THEMES = {
             ("placeholder",                 "light gray", "default",               "default",                  "#999", "default"),
             ("placeholder_text",            "light gray", "default",               "default",                  "#999", "default"),
             ("error",                       "dark red,blink", "default",           "blink",                    "#a22,blink", "default"),
-        ],        
+            ("irc_ts",                      "dark gray", "default",                "default",                  "#888", "default"),
+            ("irc_nick_self",               "dark green", "default",               "default",                  "#3a0", "default"),
+            ("irc_nick_peer",               "dark cyan", "default",                "default",                  "#077", "default"),
+            ("irc_notice",                  "brown", "default",                    "default",                  "#a70", "default"),
+            ("irc_error",                   "dark red", "default",                 "default",                  "#a22", "default"),
+            ("irc_system",                  "dark gray", "default",                "default",                  "#888", "default"),
+            ("irc_mention",                 "dark red,bold", "default",             "bold",                     "#c50,bold", "default"),
+        ],
     }
 }
 

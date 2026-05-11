@@ -192,6 +192,8 @@ class Browser:
             return "nomadnetwork.node"
         elif destination_type == "lxmf":
             return "lxmf.delivery"
+        elif destination_type == "rrc":
+            return "rrc.hub.session"
         else:
             return destination_type
 
@@ -250,6 +252,11 @@ class Browser:
             recurse_down(self.attr_maps)
             RNS.log("Including request data: "+str(request_data), RNS.LOG_DEBUG)
 
+        # rrc://<hex>[:<dest_name>]/<room> URL form
+        if link_target.startswith("rrc://"):
+            self.handle_rrc_link(link_target[6:])
+            return
+
         components = link_target.split("@")
         destination_type = None
 
@@ -279,6 +286,10 @@ class Browser:
         elif destination_type == "lxmf.delivery":
             RNS.log("Passing LXMF link to handler", RNS.LOG_DEBUG)
             self.handle_lxmf_link(link_target)
+
+        elif destination_type == "rrc.hub.session":
+            RNS.log("Passing RRC link to handler", RNS.LOG_DEBUG)
+            self.handle_rrc_link(link_target)
 
         elif destination_type == "partial":
             if partial_ids != None and len(partial_ids) > 0: self.handle_partial_updates(partial_ids)
@@ -328,6 +339,56 @@ class Browser:
         except Exception as e:
             RNS.log("Error while starting conversation from link. The contained exception was: "+str(e), RNS.LOG_ERROR)
             self.browser_footer = urwid.Text("Could not open LXMF link: "+str(e))
+            self.frame.contents["footer"] = (self.browser_footer, self.frame.options())
+
+
+    def handle_rrc_link(self, link_target):
+        try:
+            if not isinstance(link_target, str):
+                raise ValueError("invalid RRC link payload")
+            rest = link_target.strip()
+            if rest.startswith("/"):
+                rest = rest[1:]
+            hub_part, _, room = rest.partition("/")
+            hex_part, _, dest = hub_part.partition(":")
+            hex_part = hex_part.strip()
+            dest = dest.strip() or None
+            try:
+                hub_hash = bytes.fromhex(hex_part)
+            except Exception:
+                raise ValueError("invalid hub hash")
+            expected_len = RNS.Reticulum.TRUNCATED_HASHLENGTH // 8
+            if len(hub_hash) != expected_len:
+                raise ValueError("hub hash must be "+str(expected_len)+" bytes")
+
+            room = room.strip().lstrip("#").strip()
+            room_norm = None
+            if room:
+                try:
+                    # validate the room name early; pass the raw value through
+                    from nomadnet.RRC import RRCHub as _RRCHubCls  # noqa
+                    room_norm = room.lower()
+                except Exception:
+                    room_norm = None
+
+            existing = self.app.rrc.find_hub(hub_hash, dest_name=dest)
+            self.app.ui.main_display.show_channels(None)
+            channels = self.app.ui.main_display.sub_displays.channels_display
+
+            if existing is not None:
+                channels.update_list()
+                if room_norm:
+                    channels._select_room(None, (existing, room_norm))
+                else:
+                    channels._select_hub(None, existing)
+                return
+
+
+            channels.confirm_new_hub_dialog(hub_hash, dest, room_norm)
+
+        except Exception as e:
+            RNS.log("Could not open RRC link: "+str(e), RNS.LOG_ERROR)
+            self.browser_footer = urwid.Text("Could not open RRC link: "+str(e))
             self.frame.contents["footer"] = (self.browser_footer, self.frame.options())
 
 

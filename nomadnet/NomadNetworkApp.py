@@ -41,6 +41,13 @@ class NomadNetworkApp:
         RNS.log("Saving directory...", RNS.LOG_VERBOSE)
         self.directory.save_to_disk()
 
+        if hasattr(self, "rrc") and self.rrc is not None:
+            try:
+                self.rrc.save()
+                self.rrc.shutdown()
+            except Exception:
+                pass
+
         if hasattr(self.ui, "restore_ixon"):
             if self.ui.restore_ixon:
                 try:
@@ -300,6 +307,10 @@ class NomadNetworkApp:
                 RNS.log("Error while loading list of ignored destinations: "+str(e), RNS.LOG_ERROR)
 
         self.directory = nomadnet.Directory(self)
+
+        from nomadnet.RRC import RRCManager
+        self.rrc = RRCManager(self)
+        self.rrc.load()
 
         static_peers = []
         for static_peer in self.static_peers:
