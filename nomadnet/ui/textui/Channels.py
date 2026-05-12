@@ -566,7 +566,7 @@ class RoomWidget(urwid.WidgetWrap):
         "/join <room>                         - join a room on this hub",
         "/part [room]                         - leave a room (default: current)",
         "/leave [room]                        - alias for /part",
-        "/nick <name>                         - set your display name",
+        "/nick <name>                         - set your nick on this hub only",
         "/who [room]                          - list users (current room if omitted)",
         "/names [room]                        - alias for /who",
         "/clear                               - clear local messages in this room",
@@ -667,16 +667,18 @@ class RoomWidget(urwid.WidgetWrap):
 
         if cmd == "nick":
             if not arg:
-                cur = self.app.rrc.get_nickname() or "(unset)"
-                self._local_message("system", "Current nick: "+cur)
+                cur = self.hub.get_effective_nick() or " unset"
+                src = "nick: " if (isinstance(self.hub.nick_override, str) and self.hub.nick_override) else "global"
+                self._local_message("system", "Nick on this hub: "+cur+" ("+src+")")
                 return
             limit = self.hub.max_nick_bytes or 32
             if len(arg.encode("utf-8")) > limit:
                 self._local_message("error", "Nick too long (max "+str(limit)+" bytes)")
                 return
             try:
-                self.app.set_display_name(arg)
-                self._local_message("system", "Nick set to "+arg)
+                self.hub.set_nick_override(arg)
+                self._local_message("system", "Nick on this hub set to "+arg+
+                                    " (use /nick with no argument to view)")
             except Exception as e:
                 self._local_message("error", "Nick change failed: "+str(e))
             return
@@ -808,7 +810,10 @@ def _message_widget(app, hub, m, link_delegate=None):
     g = app.ui.glyphs
     own_nick = None
     try:
-        own_nick = app.rrc.get_nickname()
+        if hub is not None:
+            own_nick = hub.get_effective_nick()
+        else:
+            own_nick = app.rrc.get_nickname()
     except Exception:
         pass
 

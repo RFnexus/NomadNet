@@ -201,6 +201,11 @@ class RRCHub:
         self.available_rooms = {}
         self._silent_list_pending = 0
 
+        self.nick_override = None
+        self._pending_joins = set()
+        self._pending_parts = set()
+        self._silent_joins = set()
+
     def _log(self, msg, level=None):
         if level is None:
             level = RNS.LOG_INFO
@@ -369,7 +374,7 @@ class RRCHub:
             B_HELLO_CAPS: {CAP_RESOURCE_ENVELOPE: True},
         }
         env = _make_envelope(T_HELLO, src=self.manager.identity.hash, body=body)
-        nick = self.manager.get_nickname()
+        nick = self.get_effective_nick()
         if nick:
             env[K_NICK] = nick
         payload = cbor.encode(env)
@@ -382,6 +387,9 @@ class RRCHub:
             self.welcomed = False
             self.members.clear()
             self._resource_expectations.clear()
+            self._pending_joins.clear()
+            self._pending_parts.clear()
+            self._silent_joins.clear()
             should_reconnect = self.auto_reconnect and not self._manual_disconnect
         self._set_status(RRCHub.STATUS_DISCONNECTED, "Disconnected")
         if should_reconnect:
@@ -439,6 +447,20 @@ class RRCHub:
         self.manager.save()
         self.manager._notify_change(self)
 
+    def get_effective_nick(self):
+        if isinstance(self.nick_override, str) and self.nick_override:
+            return self.nick_override
+        return self.manager.get_nickname()
+
+    def set_nick_override(self, nick):
+        with self._lock:
+            if nick is None or (isinstance(nick, str) and nick == ""):
+                self.nick_override = None
+            else:
+                self.nick_override = str(nick)
+        self.manager.save()
+        self.manager._notify_change(self)
+
     def _packet_would_fit(self, link, payload):
         try:
             pkt = RNS.Packet(link, payload)
@@ -457,13 +479,17 @@ class RRCHub:
             raise RuntimeError("message exceeds link MTU")
         RNS.Packet(link, payload).send()
 
-    def join_room(self, room, key=None):
+    def join_room(self, room, key=None, silent=False):
         r = self._normalize_room(room)
         body = key if (isinstance(key, str) and key) else None
         env = _make_envelope(T_JOIN, src=self.manager.identity.hash, room=r, body=body)
-        nick = self.manager.get_nickname()
+        nick = self.get_effective_nick()
         if nick:
             env[K_NICK] = nick
+        with self._lock:
+            self._pending_joins.add(r)
+            if silent:
+                self._silent_joins.add(r)
         self._send_env(env)
         with self._lock:
             if r not in self.messages:
@@ -474,7 +500,7 @@ class RRCHub:
         if not isinstance(text, str) or not text.startswith("/"):
             raise ValueError("command must start with /")
         env = _make_envelope(T_MSG, src=self.manager.identity.hash, room=room, body=text)
-        nick = self.manager.get_nickname()
+        nick = self.get_effective_nick()
         if nick:
             env[K_NICK] = nick
         self._send_env(env)
@@ -494,6 +520,8 @@ class RRCHub:
     def part_room(self, room):
         room_n = self._normalize_room(room)
         env = _make_envelope(T_PART, src=self.manager.identity.hash, room=room_n)
+        with self._lock:
+            self._pending_parts.add(room_n)
         try:
             self._send_env(env)
         except Exception:
@@ -510,7 +538,7 @@ class RRCHub:
         if len(text.encode("utf-8")) > self.max_msg_body_bytes:
             raise ValueError("message too long for hub limit")
         env = _make_envelope(T_MSG, src=self.manager.identity.hash, room=r, body=text)
-        nick = self.manager.get_nickname()
+        nick = self.get_effective_nick()
         if nick:
             env[K_NICK] = nick
         mid = env[K_ID]
@@ -643,33 +671,40 @@ class RRCHub:
             room = env.get(K_ROOM)
             if isinstance(room, str) and room:
                 r = room.strip().lower()
-                src = env.get(K_SRC)
-                nick = env.get(K_NICK)
                 body = env.get(K_BODY)
                 own_hash = self.manager.identity.hash if self.manager.identity is not None else None
-                self_join = isinstance(src, (bytes, bytearray)) and own_hash is not None and bytes(src) == own_hash
+
+                body_hashes = []
+                if isinstance(body, list):
+                    body_hashes = [bytes(e) for e in body if isinstance(e, (bytes, bytearray))]
+
                 with self._lock:
+                    self_join = r in self._pending_joins
+                    silent = r in self._silent_joins
+                    if self_join:
+                        self._pending_joins.discard(r)
+                    if silent:
+                        self._silent_joins.discard(r)
+
                     self.rooms.add(r)
                     if r not in self.messages:
                         self.messages[r] = []
                     members = self.members.setdefault(r, set())
-                    if isinstance(body, list):
-                        for entry in body:
-                            if isinstance(entry, (bytes, bytearray)):
-                                members.add(bytes(entry))
-                    if isinstance(src, (bytes, bytearray)):
-                        sb = bytes(src)
-                        if own_hash is None or sb != own_hash:
-                            members.add(sb)
-                        if isinstance(nick, str) and nick:
-                            self.nicks[sb] = nick
+                    for h in body_hashes:
+                        members.add(h)
                     if own_hash is not None:
                         members.add(own_hash)
+
                 if self_join:
-                    self._record_system(r, "You joined #"+r)
+                    if not silent:
+                        self._record_system(r, "You joined #"+r)
                     self.manager.save()
-                elif isinstance(src, (bytes, bytearray)):
-                    self._record_system(r, self.display_name_for(src)+" joined")
+                else:
+                    joiner = None
+                    if len(body_hashes) == 1 and (own_hash is None or body_hashes[0] != own_hash):
+                        joiner = body_hashes[0]
+                    if joiner is not None:
+                        self._record_system(r, self.display_name_for(joiner)+" joined")
                 self.manager._notify_change(self)
             return
 
@@ -677,25 +712,34 @@ class RRCHub:
             room = env.get(K_ROOM)
             if isinstance(room, str) and room:
                 r = room.strip().lower()
-                src = env.get(K_SRC)
                 body = env.get(K_BODY)
                 own_hash = self.manager.identity.hash if self.manager.identity is not None else None
-                self_part = isinstance(src, (bytes, bytearray)) and own_hash is not None and bytes(src) == own_hash
+
+                body_hashes = []
+                if isinstance(body, list):
+                    body_hashes = [bytes(e) for e in body if isinstance(e, (bytes, bytearray))]
+
                 with self._lock:
+                    self_part = r in self._pending_parts
+                    if self_part:
+                        self._pending_parts.discard(r)
+
                     members = self.members.get(r)
-                    if isinstance(body, list):
-                        for entry in body:
-                            if isinstance(entry, (bytes, bytearray)) and members is not None:
-                                members.discard(bytes(entry))
-                    elif isinstance(src, (bytes, bytearray)) and members is not None:
-                        members.discard(bytes(src))
+                    if members is not None:
+                        for h in body_hashes:
+                            members.discard(h)
                     if self_part:
                         self.rooms.discard(r)
                         self.members.pop(r, None)
+
                 if self_part:
                     self.manager.save()
-                if not self_part and isinstance(src, (bytes, bytearray)):
-                    self._record_system(r, self.display_name_for(src)+" left")
+                else:
+                    parter = None
+                    if len(body_hashes) == 1 and (own_hash is None or body_hashes[0] != own_hash):
+                        parter = body_hashes[0]
+                    if parter is not None:
+                        self._record_system(r, self.display_name_for(parter)+" left")
                 self.manager._notify_change(self)
             return
 
@@ -725,7 +769,7 @@ class RRCHub:
                 )
                 is_own = isinstance(src, (bytes, bytearray)) and own_hash is not None and bytes(src) == own_hash
                 if not is_own:
-                    own_nick = self.manager.get_nickname()
+                    own_nick = self.get_effective_nick()
                     pat = _mention_re(own_nick)
                     if pat is not None and pat.search(body):
                         msg.mention = True
@@ -918,7 +962,7 @@ class RRCManager:
     def _on_welcome(self, hub):
         for r in list(hub.rooms):
             try:
-                hub.join_room(r)
+                hub.join_room(r, silent=True)
             except Exception:
                 pass
 
@@ -1020,6 +1064,9 @@ class RRCManager:
                 al = e.get("auto_list")
                 if isinstance(al, bool):
                     hub.auto_list = al
+                no = e.get("nick")
+                if isinstance(no, str) and no:
+                    hub.nick_override = no
         except Exception as e:
             RNS.log("Failed to load RRC hubs: "+str(e), RNS.LOG_ERROR)
         finally:
@@ -1037,7 +1084,7 @@ class RRCManager:
                     for h in self.hubs:
                         joined = set(h.rooms)
                         parted = set(h.messages.keys()) - joined
-                        entries.append({
+                        entry = {
                             "hash":           h.hub_hash,
                             "dest_name":      h.dest_name,
                             "name":           h.name,
@@ -1045,7 +1092,10 @@ class RRCManager:
                             "parted_rooms":   sorted(parted),
                             "auto_reconnect": bool(h.auto_reconnect),
                             "auto_list":      bool(h.auto_list),
-                        })
+                        }
+                        if isinstance(h.nick_override, str) and h.nick_override:
+                            entry["nick"] = h.nick_override
+                        entries.append(entry)
                 data = cbor.encode({"hubs": entries})
                 with open(tmp_path, "wb") as f:
                     f.write(data)
