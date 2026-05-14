@@ -273,7 +273,11 @@ class RRCHub:
             if self._reconnect_timer is not None:
                 self._reconnect_timer.cancel()
                 self._reconnect_timer = None
-            self._set_status(RRCHub.STATUS_CONNECTING, "Connecting")
+            if self._reconnect_attempts > 0:
+                text = "Reconnecting (attempt "+str(self._reconnect_attempts)+")"
+            else:
+                text = "Connecting"
+            self._set_status(RRCHub.STATUS_CONNECTING, text)
 
         t = threading.Thread(target=self._connect_worker, daemon=True)
         t.start()
@@ -407,7 +411,6 @@ class RRCHub:
                     self._reconnect_timer = None
                     if self._manual_disconnect or not self.auto_reconnect:
                         return
-                self._set_status(RRCHub.STATUS_CONNECTING, "Reconnecting (attempt "+str(self._reconnect_attempts)+")")
                 self.connect()
 
             self._reconnect_timer = threading.Timer(backoff, fire)
