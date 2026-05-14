@@ -101,6 +101,39 @@ def _msg_id():
     return os.urandom(8)
 
 
+# greedy .+ intentionally captures nicks containing parens like "user (alt) (deadbeefcafe)"
+_WHO_ENTRY_RE = re.compile(
+    r"(?:^|,\s)"
+    r"(?:(?P<nick>.+?)\s\((?P<np>[0-9a-fA-F]+)\)|(?P<bh>[0-9a-fA-F]+))"
+    r"(?=,\s|$)"
+)
+
+
+# hub /who response format: "members in <room>: nick1 (hex12), nick2 (hex12), <full_hex>, ..."
+# nicked users carry only a 12-hex prefix of their identity hash; un-nicked users appear as the full hex
+def _parse_who_notice(text):
+    if not isinstance(text, str):
+        return None
+    prefix = "members in "
+    if not text.startswith(prefix):
+        return None
+    sep_idx = text.find(": ", len(prefix))
+    if sep_idx < 0:
+        return None
+    room = text[len(prefix):sep_idx].strip().lower()
+    if not room:
+        return None
+    body = text[sep_idx+2:].strip()
+    entries = []
+    if body and body != "(none)":
+        for m in _WHO_ENTRY_RE.finditer(body):
+            if m.group("nick") is not None:
+                entries.append((m.group("nick").strip(), m.group("np").lower()))
+            elif m.group("bh") is not None:
+                entries.append((None, m.group("bh").lower()))
+    return (room, entries)
+
+
 def _parse_room_list_notice(text):
     if not isinstance(text, str):
         return None
@@ -186,6 +219,7 @@ class RRCHub:
 
         self.auto_reconnect = False
         self.auto_list = False
+        self.auto_who = False
 
         self._lock = threading.RLock()
         self._resource_expectations = {}
@@ -200,6 +234,7 @@ class RRCHub:
 
         self.available_rooms = {}
         self._silent_list_pending = 0
+        self._silent_who_rooms = set()
 
         self.nick_override = None
         self._pending_joins = set()
@@ -394,6 +429,7 @@ class RRCHub:
             self._pending_joins.clear()
             self._pending_parts.clear()
             self._silent_joins.clear()
+            self._silent_who_rooms.clear()
             should_reconnect = self.auto_reconnect and not self._manual_disconnect
         self._set_status(RRCHub.STATUS_DISCONNECTED, "Disconnected")
         if should_reconnect:
@@ -418,7 +454,6 @@ class RRCHub:
             self._reconnect_timer.start()
             self._set_status(RRCHub.STATUS_DISCONNECTED, "Reconnect in "+str(int(backoff))+"s")
 
-    
 
     def disconnect(self):
         self._stop_hello.set()
@@ -435,19 +470,28 @@ class RRCHub:
             except Exception: pass
         self._set_status(RRCHub.STATUS_DISCONNECTED, "Disconnected")
 
-    def set_auto_reconnect(self, enabled):
+    def set_auto_reconnect(self, enabled, save=True):
         with self._lock:
             self.auto_reconnect = bool(enabled)
             if not enabled and self._reconnect_timer is not None:
                 self._reconnect_timer.cancel()
                 self._reconnect_timer = None
-        self.manager.save()
+        if save:
+            self.manager.save()
         self.manager._notify_change(self)
 
-    def set_auto_list(self, enabled):
+    def set_auto_list(self, enabled, save=True):
         with self._lock:
             self.auto_list = bool(enabled)
-        self.manager.save()
+        if save:
+            self.manager.save()
+        self.manager._notify_change(self)
+
+    def set_auto_who(self, enabled, save=True):
+        with self._lock:
+            self.auto_who = bool(enabled)
+        if save:
+            self.manager.save()
         self.manager._notify_change(self)
 
     def get_effective_nick(self):
@@ -701,6 +745,14 @@ class RRCHub:
                 if self_join:
                     if not silent:
                         self._record_system(r, "You joined #"+r)
+                        if self.auto_who:
+                            try:
+                                with self._lock:
+                                    self._silent_who_rooms.add(r)
+                                self.send_command("/who "+r, room=r)
+                            except Exception:
+                                with self._lock:
+                                    self._silent_who_rooms.discard(r)
                     self.manager.save()
                 else:
                     joiner = None
@@ -793,6 +845,29 @@ class RRCHub:
                             self._silent_list_pending -= 1
                     self.manager._notify_change(self)
                     if silent:
+                        return
+                parsed_who = _parse_who_notice(body)
+                if parsed_who is not None:
+                    who_room, who_entries = parsed_who
+                    with self._lock:
+                        members = self.members.setdefault(who_room, set())
+                        for nick, hash_hex in who_entries:
+                            try:
+                                hash_bytes = bytes.fromhex(hash_hex)
+                            except Exception:
+                                continue
+                            if nick is None:
+                                members.add(hash_bytes)
+                                continue
+                            for ph in members:
+                                if ph.startswith(hash_bytes):
+                                    self.nicks[ph] = nick
+                                    break
+                        silent_who = who_room in self._silent_who_rooms
+                        if silent_who:
+                            self._silent_who_rooms.discard(who_room)
+                    self.manager._notify_change(self)
+                    if silent_who:
                         return
                 msg = RRCMessage(
                     "notice",
@@ -1080,6 +1155,9 @@ class RRCManager:
                 al = e.get("auto_list")
                 if isinstance(al, bool):
                     hub.auto_list = al
+                aw = e.get("auto_who")
+                if isinstance(aw, bool):
+                    hub.auto_who = aw
                 no = e.get("nick")
                 if isinstance(no, str) and no:
                     hub.nick_override = no
@@ -1108,6 +1186,7 @@ class RRCManager:
                             "parted_rooms":   sorted(parted),
                             "auto_reconnect": bool(h.auto_reconnect),
                             "auto_list":      bool(h.auto_list),
+                            "auto_who":       bool(h.auto_who),
                         }
                         if isinstance(h.nick_override, str) and h.nick_override:
                             entry["nick"] = h.nick_override
@@ -1120,7 +1199,7 @@ class RRCManager:
                     except Exception: pass
                 os.replace(tmp_path, path)
             except Exception as e:
-                # 
+                #
                 #
                 #
                 #

@@ -1129,6 +1129,11 @@ class ChannelsDisplay():
         al_text  = "On" if hub.auto_list else "Off"
         lines.append(urwid.AttrMap(urwid.Text("  AutoList : "+al_glyph+" "+al_text+"  (Ctrl-E to edit)"), al_attr))
 
+        aw_glyph = g["check"] if hub.auto_who else g["cross"]
+        aw_attr  = "list_trusted" if hub.auto_who else "list_unknown"
+        aw_text  = "On" if hub.auto_who else "Off"
+        lines.append(urwid.AttrMap(urwid.Text("  AutoWho  : "+aw_glyph+" "+aw_text+"  (Ctrl-E to edit)"), aw_attr))
+
         lines.append(urwid.Divider(g["divider1"]))
 
         if hub.status == RRCHub.STATUS_CONNECTED:
@@ -1350,6 +1355,7 @@ class ChannelsDisplay():
         e_name = urwid.Edit(caption="Display name : ", edit_text=hub.name or "")
         cb_autorcn  = urwid.CheckBox("Auto-reconnect on disconnect", state=hub.auto_reconnect)
         cb_autolist = urwid.CheckBox("Auto-fetch room list on connect", state=hub.auto_list)
+        cb_autowho  = urwid.CheckBox("Auto-fetch members on room join", state=hub.auto_who)
         error_text = urwid.Text("")
 
         def dismiss(sender):
@@ -1359,8 +1365,9 @@ class ChannelsDisplay():
             try:
                 nm = e_name.get_edit_text().strip() or hub.name
                 hub.name = nm
-                hub.set_auto_reconnect(cb_autorcn.get_state())
-                hub.set_auto_list(cb_autolist.get_state())
+                hub.set_auto_reconnect(cb_autorcn.get_state(), save=False)
+                hub.set_auto_list(cb_autolist.get_state(), save=False)
+                hub.set_auto_who(cb_autowho.get_state(), save=False)
                 self.app.rrc.save()
                 self.close_dialog()
                 self.update_list()
@@ -1378,6 +1385,7 @@ class ChannelsDisplay():
                 urwid.Text(""),
                 cb_autorcn,
                 cb_autolist,
+                cb_autowho,
                 urwid.Text(""),
                 error_text,
                 urwid.Columns([
