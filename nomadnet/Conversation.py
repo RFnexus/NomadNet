@@ -1,4 +1,5 @@
 import os
+import re
 import RNS
 import LXMF
 import shutil
@@ -459,22 +460,25 @@ class ConversationMessage:
                     if found_in_fields:
                         names = []
                         file_atts = fields.get(LXMF.FIELD_FILE_ATTACHMENTS, [])
-                        for att in file_atts:
+                        for idx, att in enumerate(file_atts):
                             if isinstance(att, list) and len(att) >= 2:
                                 size = len(att[1]) if isinstance(att[1], bytes) else 0
-                                names.append(("file", str(att[0]), size))
+                                safe = ConversationMessage.safe_attachment_name(att[0], fallback="attachment_"+str(idx))
+                                names.append(("file", safe, size))
                         if LXMF.FIELD_IMAGE in fields:
                             fmt, data = ConversationMessage._unpack_media_field(fields[LXMF.FIELD_IMAGE])
                             if data:
                                 size = len(data)
                                 ext = ConversationMessage._ext_from_media_format(fmt, data)
-                                names.append(("file", "image"+ext, size))
+                                safe = ConversationMessage.safe_attachment_name("image"+ext, fallback="image")
+                                names.append(("file", safe, size))
                         if LXMF.FIELD_AUDIO in fields:
                             fmt, data = ConversationMessage._unpack_media_field(fields[LXMF.FIELD_AUDIO])
                             if data:
                                 size = len(data)
                                 ext = ConversationMessage._ext_from_media_format(fmt, data, is_audio=True)
-                                names.append(("file", "audio"+ext, size))
+                                safe = ConversationMessage.safe_attachment_name("audio"+ext, fallback="audio")
+                                names.append(("file", safe, size))
                         self._cached_has_attachments = True
                         self._cached_attachment_names = names
 
@@ -674,11 +678,18 @@ class ConversationMessage:
             try:
                 with open(manifest_path, "rb") as f:
                     manifest = msgpack.unpackb(f.read(), raw=False)
-                    for f in manifest["files"]:
-                        f["name"] = os.path.basename(f["name"]).encode("utf-8").decode("utf-8")
-
+                    safe_files = []
+                    for idx, entry in enumerate(manifest.get("files", [])):
+                        if not isinstance(entry, dict):
+                            continue
+                        entry["name"] = ConversationMessage.safe_attachment_name(entry.get("name"), fallback="attachment_"+str(idx))
+                        stored = entry.get("stored_name")
+                        if not isinstance(stored, str) or not re.fullmatch(r"file_\d+", stored):
+                            continue
+                        safe_files.append(entry)
+                    manifest["files"] = safe_files
                     return manifest
-            
+
             except Exception as e:
                 RNS.log(f"Error loading attachment manifest: {e}")
                 return None
@@ -714,12 +725,12 @@ class ConversationMessage:
             for idx, att in enumerate(file_attachments):
                 try:
                     if isinstance(att, list) and len(att) >= 2:
-                        filename = os.path.basename(str(att[0])).encode("utf-8").decode("utf-8")
+                        filename = ConversationMessage.safe_attachment_name(att[0], fallback="attachment_"+str(idx))
                         data = att[1] if isinstance(att[1], bytes) else b""
                         stored_name = "file_"+str(idx)
                         with open(os.path.join(att_dir, stored_name), "wb") as f: f.write(data)
                         manifest["files"].append({"name": filename, "stored_name": stored_name, "size": len(data)})
-                
+
                 except Exception as e:
                     RNS.log(f"Error decoding file attachment: {e}", RNS.LOG_ERROR)
                     continue
@@ -728,7 +739,7 @@ class ConversationMessage:
             fmt, data = ConversationMessage._unpack_media_field(fields[LXMF.FIELD_IMAGE])
             if data:
                 ext = ConversationMessage._ext_from_media_format(fmt, data)
-                filename = "image" + ext
+                filename = ConversationMessage.safe_attachment_name("image" + ext, fallback="image")
                 stored_name = "file_"+str(len(manifest["files"]))
                 with open(os.path.join(att_dir, stored_name), "wb") as f:
                     f.write(data)
@@ -738,7 +749,7 @@ class ConversationMessage:
             fmt, data = ConversationMessage._unpack_media_field(fields[LXMF.FIELD_AUDIO])
             if data:
                 ext = ConversationMessage._ext_from_media_format(fmt, data, is_audio=True)
-                filename = "audio" + ext
+                filename = ConversationMessage.safe_attachment_name("audio" + ext, fallback="audio")
                 stored_name = "file_"+str(len(manifest["files"]))
                 with open(os.path.join(att_dir, stored_name), "wb") as f:
                     f.write(data)
@@ -746,6 +757,29 @@ class ConversationMessage:
 
         with open(os.path.join(att_dir, "manifest"), "wb") as f:
             f.write(msgpack.packb(manifest))
+
+    @staticmethod
+    def safe_attachment_name(name, fallback="attachment"):
+        try:
+            if isinstance(name, bytes):
+                name = name.decode("utf-8", errors="replace")
+            elif not isinstance(name, str):
+                name = str(name) if name is not None else ""
+        except Exception:
+            name = ""
+        name = re.sub(r"[\x00-\x1f\x7f]", "", name)
+        parts = re.split(r"[/\\]", name)
+        name = parts[-1] if parts else ""
+        if ":" in name:
+            name = name.split(":")[-1]
+        name = name.lstrip(".")
+        if not name or name in (".", ".."):
+            return fallback
+        if len(name) > 200:
+            base, ext = os.path.splitext(name)
+            ext = ext[:16]
+            name = base[:200 - len(ext)] + ext
+        return name
 
     @staticmethod
     def _unpack_media_field(field_data):
@@ -789,10 +823,10 @@ class ConversationMessage:
 
     @staticmethod
     def _ext_from_media_format(fmt, data, is_audio=False):
-        """Derive file extension from format identifier and data.
-        fmt can be a string ('webp'), an integer (LXMF audio mode), or None."""
         if isinstance(fmt, str) and len(fmt) > 0:
-            return "." + fmt.lower().strip(".")
+            safe = re.sub(r"[^A-Za-z0-9]", "", fmt).lower()[:8]
+            if safe:
+                return "." + safe
         if isinstance(fmt, int) and is_audio:
             if fmt >= 16 and fmt <= 25:
                 return ".ogg"

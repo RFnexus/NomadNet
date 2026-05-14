@@ -372,6 +372,7 @@ class RoomWidget(urwid.WidgetWrap):
         editor = RoomMessageEdit(caption="", edit_text="", multiline=True)
         editor.delegate = self
         self.editor = editor
+        urwid.connect_signal(editor, "postchange", self._on_editor_change)
         editor_attr = urwid.AttrMap(editor, "msg_editor")
 
         self.link_delegate = _ChatLinkDelegate(self.display, self.hub)
@@ -474,6 +475,10 @@ class RoomWidget(urwid.WidgetWrap):
 
         self.messagelist = IndicativeListBox(widgets, position=len(widgets)-1)
         self.messagelist.name = "messagelist"
+        try:
+            self.messagelist._listbox.set_focus_valign("bottom")
+        except Exception:
+            pass
         if replace and hasattr(self, "frame"):
             self.frame.contents["body"] = (self.messagelist, None)
         if hasattr(self, "users_pile"):
@@ -495,6 +500,7 @@ class RoomWidget(urwid.WidgetWrap):
                 del body[0]
             try:
                 self.messagelist._listbox.set_focus(len(body)-1)
+                self.messagelist._listbox.set_focus_valign("bottom")
             except Exception:
                 pass
         except Exception as e:
@@ -502,6 +508,17 @@ class RoomWidget(urwid.WidgetWrap):
             self.update_messages(replace=True)
         if hasattr(self, "users_pile"):
             self._refresh_users_pane()
+
+    def _on_editor_change(self, editor, old_text):
+        if self.messagelist is None:
+            return
+        try:
+            body = self.messagelist._listbox.body
+            if len(body) > 0:
+                self.messagelist._listbox.set_focus(len(body)-1)
+                self.messagelist._listbox.set_focus_valign("bottom")
+        except Exception:
+            pass
 
     def send_message(self):
         text = self.editor.get_edit_text()

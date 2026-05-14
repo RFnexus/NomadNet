@@ -1798,32 +1798,34 @@ class ClickableAttachment(urwid.Text):
             self.set_text("  "+g["cross"]+" Save failed: "+str(e))
 
 
-def _copy_attachment_to_dest(filename, src_path):
+def _resolve_attachment_save_path(filename):
     app = nomadnet.NomadNetworkApp.get_shared_instance()
     save_dir = app.attachment_save_path if app.attachment_save_path else app.downloads_path
     if not os.path.isdir(save_dir):
         os.makedirs(save_dir)
-    save_path = os.path.join(save_dir, filename)
+    safe_name = ConversationMessage.safe_attachment_name(filename)
+    base_dir = os.path.realpath(save_dir) + os.sep
+    candidate = os.path.realpath(os.path.join(save_dir, safe_name))
+    if not (candidate + os.sep).startswith(base_dir):
+        raise OSError(13, os.strerror(13))
     counter = 0
-    base, ext = os.path.splitext(filename)
-    while os.path.isfile(save_path):
+    base, ext = os.path.splitext(safe_name)
+    while os.path.isfile(candidate):
         counter += 1
-        save_path = os.path.join(save_dir, base+"_"+str(counter)+ext)
+        candidate = os.path.realpath(os.path.join(save_dir, base+"_"+str(counter)+ext))
+        if not (candidate + os.sep).startswith(base_dir):
+            raise OSError(13, os.strerror(13))
+    return candidate
+
+
+def _copy_attachment_to_dest(filename, src_path):
+    save_path = _resolve_attachment_save_path(filename)
     shutil.copy2(src_path, save_path)
     return save_path
 
 
 def _save_attachment_to_disk(filename, data):
-    app = nomadnet.NomadNetworkApp.get_shared_instance()
-    save_dir = app.attachment_save_path if app.attachment_save_path else app.downloads_path
-    if not os.path.isdir(save_dir):
-        os.makedirs(save_dir)
-    save_path = os.path.join(save_dir, filename)
-    counter = 0
-    base, ext = os.path.splitext(filename)
-    while os.path.isfile(save_path):
-        counter += 1
-        save_path = os.path.join(save_dir, base+"_"+str(counter)+ext)
+    save_path = _resolve_attachment_save_path(filename)
     with open(save_path, "wb") as f:
         f.write(data)
     return save_path
