@@ -104,7 +104,7 @@ def _msg_id():
 # greedy .+ intentionally captures nicks containing parens like "user (alt) (deadbeefcafe)"
 _WHO_ENTRY_RE = re.compile(
     r"(?:^|,\s)"
-    r"(?:(?P<nick>.+?)\s\((?P<np>[0-9a-fA-F]+)\)|(?P<bh>[0-9a-fA-F]+))"
+    r"(?:(?P<bh>[0-9a-fA-F]{32})|(?P<nick>.+?)\s\((?P<np>[0-9a-fA-F]{12})\))"
     r"(?=,\s|$)"
 )
 
@@ -279,7 +279,7 @@ class RRCHub:
             nick = self.nicks.get(ph)
         if nick:
             return nick
-        return ph.hex()[:10]
+        return ph.hex()[:12]
 
     def mark_read(self, room):
         r = self._normalize_room(room)

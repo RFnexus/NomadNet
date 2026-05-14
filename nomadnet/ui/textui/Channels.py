@@ -137,7 +137,7 @@ def _body_markup(body, body_attr="body_text", own_nick=None):
     return out, has_links
 
 
-def _short_hash(b, n=10):
+def _short_hash(b, n=12):
     if isinstance(b, (bytes, bytearray)):
         return bytes(b).hex()[:n]
     return "?"
