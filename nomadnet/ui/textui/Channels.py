@@ -211,6 +211,32 @@ class ChannelsListArea(urwid.LineBox):
             return super(ChannelsListArea, self).keypress(size, key)
 
 
+class HubInfoArea(urwid.LineBox):
+    def keypress(self, size, key):
+        if key == "ctrl n":
+            self.delegate.new_hub_dialog()
+            return None
+        if key == "ctrl a":
+            self.delegate.join_room_dialog()
+            return None
+        if key == "ctrl r":
+            self.delegate.connect_selected()
+            return None
+        if key == "ctrl w":
+            self.delegate.disconnect_selected()
+            return None
+        if key == "ctrl t":
+            self.delegate.toggle_auto_reconnect_selected()
+            return None
+        if key == "ctrl e":
+            self.delegate.edit_hub_dialog()
+            return None
+        if key == "ctrl x":
+            self.delegate.remove_selected_dialog()
+            return None
+        return super(HubInfoArea, self).keypress(size, key)
+
+
 class RoomMessageEdit(urwid.Edit):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -1052,9 +1078,13 @@ class ChannelsDisplay():
         self.selected_key = ("room", hub.hub_hash, hub.dest_name, room)
         self.app.rrc.set_active(hub, room)
         self._maybe_autoconnect(hub)
-        if room not in hub.rooms and hub.status == RRCHub.STATUS_CONNECTED:
-            try: hub.join_room(room)
-            except Exception as e: RNS.log("Auto-join failed: "+str(e), RNS.LOG_ERROR)
+        if room not in hub.rooms:
+            if hub.status == RRCHub.STATUS_CONNECTED:
+                try: hub.join_room(room)
+                except Exception as e: RNS.log("Auto-join failed: "+str(e), RNS.LOG_ERROR)
+            else:
+                try: hub.add_room(room)
+                except Exception as e: RNS.log("Pending join queue failed: "+str(e), RNS.LOG_ERROR)
         self._show_room(hub, room)
 
     def _maybe_autoconnect(self, hub):
@@ -1131,7 +1161,8 @@ class ChannelsDisplay():
                 urwid.connect_signal(entry, "click", self._select_room, (hub, name))
                 lines.append(urwid.AttrMap(entry, "list_unknown", "list_focus"))
 
-        info = urwid.LineBox(urwid.Filler(urwid.Pile(lines), "top"), title=hub.name)
+        info = HubInfoArea(urwid.Filler(urwid.Pile(lines), "top"), title=hub.name)
+        info.delegate = self
         self.current_room_widget = None
         options = self.columns_widget.options(urwid.WEIGHT, 1)
         self.columns_widget.contents[1] = (info, options)
@@ -1295,7 +1326,7 @@ class ChannelsDisplay():
                 urwid.AttrMap(urwid.Text(
                     "  Opening will add this hub to your client,"), "list_unknown"),
                 urwid.AttrMap(urwid.Text(
-                    "  ,and connect to it, and reveal your identity hash"), "list_unknown"),
+                    "  and reveal your identity hash to the hub"), "list_unknown"),
                 urwid.AttrMap(urwid.Text(
                     "  to the hub operator."), "list_unknown"),
                 urwid.Text(""),

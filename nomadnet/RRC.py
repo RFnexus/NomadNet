@@ -809,9 +809,22 @@ class RRCHub:
             body = env.get(K_BODY)
             room = env.get(K_ROOM)
             text = body if isinstance(body, str) else "(error)"
+            r = room.strip().lower() if isinstance(room, str) else None
+            rollback_join = False
+            if r:
+                with self._lock:
+                    if r in self._pending_joins:
+                        rollback_join = True
+                    self._pending_joins.discard(r)
+                    self._silent_joins.discard(r)
+                    self._pending_parts.discard(r)
+                    if rollback_join:
+                        self.rooms.discard(r)
+                if rollback_join:
+                    self.manager.save()
             msg = RRCMessage(
                 "error",
-                room.strip().lower() if isinstance(room, str) else None,
+                r,
                 None,
                 None,
                 text,

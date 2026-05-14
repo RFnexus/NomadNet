@@ -362,14 +362,7 @@ class Browser:
                 raise ValueError("hub hash must be "+str(expected_len)+" bytes")
 
             room = room.strip().lstrip("#").strip()
-            room_norm = None
-            if room:
-                try:
-                    # validate the room name early; pass the raw value through
-                    from nomadnet.RRC import RRCHub as _RRCHubCls  # noqa
-                    room_norm = room.lower()
-                except Exception:
-                    room_norm = None
+            room_norm = room.lower() if room else None
 
             existing = self.app.rrc.find_hub(hub_hash, dest_name=dest)
             self.app.ui.main_display.show_channels(None)
