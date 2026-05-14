@@ -745,14 +745,14 @@ class RRCHub:
                 if self_join:
                     if not silent:
                         self._record_system(r, "You joined #"+r)
-                        if self.auto_who:
-                            try:
-                                with self._lock:
-                                    self._silent_who_rooms.add(r)
-                                self.send_command("/who "+r, room=r)
-                            except Exception:
-                                with self._lock:
-                                    self._silent_who_rooms.discard(r)
+                    if self.auto_who:
+                        try:
+                            with self._lock:
+                                self._silent_who_rooms.add(r)
+                            self.send_command("/who "+r, room=r)
+                        except Exception:
+                            with self._lock:
+                                self._silent_who_rooms.discard(r)
                     self.manager.save()
                 else:
                     joiner = None

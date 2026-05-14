@@ -1503,7 +1503,15 @@ class ChannelsDisplay():
             pass
 
     def _on_rrc_change(self, hub):
-        self._wake(self.update_list)
+        def action():
+            self.update_list()
+            if (self.current_room_widget is not None
+                    and self.current_room_widget.hub is hub):
+                try:
+                    self.current_room_widget._refresh_users_pane()
+                except Exception:
+                    pass
+        self._wake(action)
 
     def _on_rrc_message(self, hub, msg):
         def action():
