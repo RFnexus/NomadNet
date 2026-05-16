@@ -146,9 +146,11 @@ class NomadNetworkApp:
         self.lxmf_sync_interval = 360*60
         self.lxmf_sync_limit    = 8
         self.compact_stream     = False
-        
+
         self.required_stamp_cost   = None
         self.accept_invalid_stamps = False
+
+        self.rrc_history_per_room_cap = 500
 
 
         if not os.path.isdir(self.storagepath):
@@ -200,11 +202,11 @@ class NomadNetworkApp:
                     import shutil
                     examplespath = os.path.join(os.path.dirname(__file__), "examples")
                     shutil.copytree(examplespath, self.examplespath, ignore=shutil.ignore_patterns("__pycache__"))
-                
+
                 except Exception as e:
                     RNS.log("Could not copy examples into the "+self.examplespath+" directory.", RNS.LOG_ERROR)
                     RNS.log("The contained exception was: "+str(e), RNS.LOG_ERROR)
-            
+
             RNS.log("Could not load config file, creating default configuration file...")
             self.createDefaultConfig()
             self.firstrun = True
@@ -377,7 +379,7 @@ class NomadNetworkApp:
 
             if not self.disable_propagation:
                 RNS.log("LXMF Propagation Node started on: "+RNS.prettyhexrep(self.message_router.propagation_destination.hash))
-                
+
             self.node = nomadnet.Node(self)
         else:
             self.node = None
@@ -442,7 +444,7 @@ class NomadNetworkApp:
         RNS.log("Starting job scheduler now", RNS.LOG_DEBUG)
         while self.should_run_jobs:
             now = time.time()
-            
+
             if now > self.peer_settings["last_lxmf_sync"] + self.lxmf_sync_interval:
                 RNS.log("Initiating automatic LXMF sync", RNS.LOG_VERBOSE)
                 self.request_lxmf_sync(limit=self.lxmf_sync_limit)
@@ -576,7 +578,7 @@ class NomadNetworkApp:
         self.peer_settings["propagation_node"] = node_hash
         self.save_peer_settings()
         self.autoselect_propagation_node()
-    
+
     def get_default_propagation_node(self):
         return self.message_router.get_outbound_propagation_node()
 
@@ -608,7 +610,7 @@ class NomadNetworkApp:
         if self.print_messages:
             if self.print_all_messages:
                 return True
-            
+
             else:
                 source_hash_text = RNS.hexrep(message.source_hash, delimit=False)
 
@@ -651,7 +653,7 @@ class NomadNetworkApp:
                 received = time.time()
 
             g = self.ui.glyphs
-            
+
             m_rtime = datetime.fromtimestamp(message.timestamp)
             stime = m_rtime.strftime(self.time_format)
 
@@ -718,7 +720,7 @@ class NomadNetworkApp:
     def createDefaultConfig(self):
         self.config = ConfigObj(__default_nomadnet_config__)
         self.config.filename = self.configpath
-        
+
         if not os.path.isdir(self.configdir):
             os.makedirs(self.configdir)
         self.config.write()
@@ -784,7 +786,7 @@ class NomadNetworkApp:
                         self.lxmf_sync_interval = value
 
                 if option == "lxmf_sync_limit":
-                    value = self.config["client"].as_int(option)    
+                    value = self.config["client"].as_int(option)
 
                     if value > 0:
                         self.lxmf_sync_limit = value
@@ -810,7 +812,7 @@ class NomadNetworkApp:
                     self.accept_invalid_stamps = value
 
                 if option == "max_accepted_size":
-                    value = self.config["client"].as_float(option)    
+                    value = self.config["client"].as_float(option)
 
                     if value > 0:
                         self.lxmf_max_incoming_size = value
@@ -900,6 +902,16 @@ class NomadNetworkApp:
                     if value == "web":
                         self.uimode = nomadnet.ui.UI_WEB
 
+        if "rrc" in self.config:
+            for option in self.config["rrc"]:
+                if option == "history_per_room_cap":
+                    try:
+                        value = self.config["rrc"].as_int(option)
+                    except Exception:
+                        value = None
+                    if value is not None and value >= 0:
+                        self.rrc_history_per_room_cap = value
+
         if "node" in self.config:
             if not "enable_node" in self.config["node"]:
                 self.enable_node = False
@@ -956,10 +968,10 @@ class NomadNetworkApp:
                 value = self.config["node"].as_int("propagation_cost")
                 if value < 13: value = 13
                 self.node_propagation_cost = value
-                
+
             if "pages_path" in self.config["node"]:
                 self.pagespath = self.config["node"]["pages_path"]
-                
+
             if not "page_refresh_interval" in self.config["node"]:
                 self.page_refresh_interval = 0
             else:
@@ -967,11 +979,11 @@ class NomadNetworkApp:
                 if value < 0:
                     value = 0
                 self.page_refresh_interval = value
-                
+
 
             if "files_path" in self.config["node"]:
                 self.filespath = self.config["node"]["files_path"]
-                
+
             if not "file_refresh_interval" in self.config["node"]:
                 self.file_refresh_interval = 0
             else:
@@ -979,7 +991,7 @@ class NomadNetworkApp:
                 if value < 0:
                     value = 0
                 self.file_refresh_interval = value
-                
+
 
             if "prioritise_destinations" in self.config["node"]:
                 self.prioritised_lxmf_destinations = self.config["node"].as_list("prioritise_destinations")
@@ -990,7 +1002,7 @@ class NomadNetworkApp:
                 self.static_peers = self.config["node"].as_list("static_peers")
             else:
                 self.static_peers = []
-                
+
             if not "max_peers" in self.config["node"]:
                 self.max_peers = None
             else:
@@ -1030,13 +1042,13 @@ class NomadNetworkApp:
                                 self.print_all_messages = True
 
                             if self.config["printing"]["print_from"].lower() == "trusted":
-                                
+
                                 self.print_all_messages = False
                                 self.print_trusted_messages = True
 
                             if len(self.config["printing"]["print_from"]) == (RNS.Identity.TRUNCATED_HASHLENGTH//8)*2:
                                 self.allowed_message_print_destinations.append(self.config["printing"]["print_from"])
-                        
+
                         if type(self.config["printing"]["print_from"]) == list:
                                 self.allowed_message_print_destinations =  self.config["printing"].as_list("print_from")
                                 for allowed_entry in self.allowed_message_print_destinations:
@@ -1056,7 +1068,7 @@ class NomadNetworkApp:
                             template_file.write(__printing_template_msg__.encode("utf-8"))
                             self.printing_template_msg = __printing_template_msg__
 
-              
+
     @staticmethod
     def get_shared_instance():
         if NomadNetworkApp._shared_instance != None:
@@ -1211,6 +1223,18 @@ hide_guide = no
 # text sanitization on names received in
 # announces.
 sanitize_names = yes
+
+[rrc]
+
+# Maximum number of messages retained per
+# room in the in-memory scrollback buffer,
+# and the number of messages restored from
+# on-disk history at startup. The on-disk
+# log itself is appended to indefinitely;
+# this cap only controls how much backlog
+# is visible. Set to 0 to keep every message
+# in memory (full history).
+history_per_room_cap = 500
 
 [node]
 

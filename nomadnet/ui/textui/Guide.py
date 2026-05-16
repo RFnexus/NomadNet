@@ -771,6 +771,16 @@ The maximum accepted unpacked size for messages received directly from other pee
 With this option enabled, Nomad Network will only display one entry in the announce stream per destination. Older announces are culled when a new one arrives.
 <
 
+>> RRC Section
+
+This section hold configuration directives related to the RRC client behaviour. It is delimited by the `![rrc]`! header in the configuration file. Available directives, along with their default values, are as follows:
+
+>>>
+`!history_per_room_cap = 500`!
+>>>>
+Maximum number of messages retained per room in the in-memory scrollback buffer, and the number of messages restored from on-disk history at startup. The on-disk log itself is appended to indefinitely; this cap only controls how much backlog is visible. Set to 0 to keep every message in memory.
+<
+
 >> Text UI Section
 
 This section hold configuration directives related to the look and feel of the text-based user interface of the program. It is delimited by the `![textui]`! header in the configuration file. Available directives, along with their default values, are as follows:

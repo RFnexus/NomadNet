@@ -727,8 +727,7 @@ class RoomWidget(urwid.WidgetWrap):
             return
 
         if cmd == "clear":
-            with self.hub._lock:
-                self.hub.messages[self.room] = []
+            self.hub.clear_messages(self.room)
             self.update_messages(replace=True)
             return
 

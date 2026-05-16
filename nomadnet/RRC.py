@@ -10,6 +10,17 @@ import RNS
 from nomadnet.vendor import cbor
 
 
+HISTORY_DIR_NAME = "rrc_history"
+HISTORY_FILENAME_SANITIZE_RE = re.compile(r"[^a-z0-9._-]+")
+
+H_KIND    = "k"
+H_SRC     = "s"
+H_NICK    = "n"
+H_TEXT    = "t"
+H_TS      = "ts"
+H_MENTION = "m"
+
+
 _MENTION_RE_CACHE = {}
 
 
@@ -241,6 +252,8 @@ class RRCHub:
         self._pending_parts = set()
         self._silent_joins = set()
 
+        self._history_write_failed = False
+
     def _log(self, msg, level=None):
         if level is None:
             level = RNS.LOG_INFO
@@ -264,7 +277,18 @@ class RRCHub:
             self.unread_rooms.discard(r)
             self.mention_rooms.discard(r)
             self.members.pop(r, None)
+        self._delete_history(r)
         self.manager.save()
+        self.manager._notify_change(self)
+
+    def clear_messages(self, room):
+        r = self._normalize_room(room)
+        with self._lock:
+            if r in self.messages:
+                self.messages[r] = []
+            self.unread_rooms.discard(r)
+            self.mention_rooms.discard(r)
+        self._delete_history(r)
         self.manager._notify_change(self)
 
     def get_members(self, room):
@@ -595,28 +619,124 @@ class RRCHub:
         self._record_message(RRCMessage("msg", r, self.manager.identity.hash, nick, text, _now_ms()), local=True)
         return mid
 
+    def _per_room_cap(self):
+        try:
+            v = int(getattr(self.manager.app, "rrc_history_per_room_cap", 0))
+        except Exception:
+            return None
+        return v if v > 0 else None
+
+    def _entry_for(self, msg):
+        return {
+            H_KIND:    msg.kind,
+            H_SRC:     bytes(msg.src) if isinstance(msg.src, (bytes, bytearray)) else None,
+            H_NICK:    msg.nick if isinstance(msg.nick, str) else None,
+            H_TEXT:    msg.text if isinstance(msg.text, str) else "",
+            H_TS:      int(msg.ts) if isinstance(msg.ts, int) else _now_ms(),
+            H_MENTION: bool(getattr(msg, "mention", False)),
+        }
+
+    def _msg_from_entry(self, room, entry):
+        if not isinstance(entry, dict):
+            return None
+        m = RRCMessage(
+            entry.get(H_KIND) if isinstance(entry.get(H_KIND), str) else "msg",
+            room,
+            entry.get(H_SRC) if isinstance(entry.get(H_SRC), (bytes, bytearray)) else None,
+            entry.get(H_NICK) if isinstance(entry.get(H_NICK), str) else None,
+            entry.get(H_TEXT) if isinstance(entry.get(H_TEXT), str) else "",
+            entry.get(H_TS) if isinstance(entry.get(H_TS), int) else 0,
+        )
+        m.mention = bool(entry.get(H_MENTION, False))
+        return m
+
+    def _persistable_room(self, room):
+        return isinstance(room, str) and room and room != "*"
+
+    def _append_history(self, room, msg):
+        if not self._persistable_room(room):
+            return
+        try:
+            self.manager._ensure_history_dir(self)
+            path = self.manager._history_path(self, room)
+            with open(path, "ab") as f:
+                f.write(cbor.encode(self._entry_for(msg)))
+            self._history_write_failed = False
+        except Exception as e:
+            if not self._history_write_failed:
+                self._history_write_failed = True
+                self._log("history persistence failed, suppressing further warnings until recovery: "+str(e), RNS.LOG_ERROR)
+
+    def _delete_history(self, room):
+        if not self._persistable_room(room):
+            return
+        path = self.manager._history_path(self, room)
+        try:
+            if os.path.isfile(path):
+                os.unlink(path)
+        except Exception:
+            pass
+
+    def _load_history(self):
+        with self._lock:
+            rooms = list(self.messages.keys())
+        for room in rooms:
+            if not self._persistable_room(room):
+                continue
+            path = self.manager._history_path(self, room)
+            if not os.path.isfile(path):
+                continue
+            window = deque(maxlen=self._per_room_cap())
+            decode_error = None
+            try:
+                with open(path, "rb") as f:
+                    while True:
+                        try:
+                            window.append(cbor.load(f))
+                        except EOFError:
+                            break
+                        except Exception as ex:
+                            decode_error = ex
+                            break
+            except OSError as ex:
+                self._log("history load failed for #"+room+": "+str(ex), RNS.LOG_ERROR)
+                continue
+            if decode_error is not None:
+                self._log("history file for #"+room+" is corrupt, truncating to last "+str(len(window))+" valid messages: "+str(decode_error), RNS.LOG_ERROR)
+            msgs = []
+            for e in window:
+                m = self._msg_from_entry(room, e)
+                if m is not None:
+                    msgs.append(m)
+            with self._lock:
+                self.messages[room] = msgs
+
     def _record_message(self, msg, local=False):
+        cap = self._per_room_cap()
         with self._lock:
             buf = self.messages.setdefault(msg.room or "*", [])
             buf.append(msg)
-            if len(buf) > 500:
-                del buf[:len(buf)-500]
+            if cap is not None and len(buf) > cap:
+                del buf[:len(buf)-cap]
             if not local and msg.room:
                 if msg.room != self.manager.active_room_for(self):
                     self.unread_rooms.add(msg.room)
                     if msg.mention:
                         self.mention_rooms.add(msg.room)
+        self._append_history(msg.room, msg)
         self.manager._notify_messages(self, msg)
 
     def _record_system(self, room, text):
         if not room:
             return
         msg = RRCMessage("system", room, None, None, text, _now_ms())
+        cap = self._per_room_cap()
         with self._lock:
             buf = self.messages.setdefault(room, [])
             buf.append(msg)
-            if len(buf) > 500:
-                del buf[:len(buf)-500]
+            if cap is not None and len(buf) > cap:
+                del buf[:len(buf)-cap]
+        self._append_history(room, msg)
         self.manager._notify_messages(self, msg)
 
     def _record_notice(self, msg):
@@ -626,6 +746,7 @@ class RRCHub:
             if target_room:
                 msg.room = target_room
 
+        cap = self._per_room_cap()
         with self._lock:
             self.notices.append(msg)
             if len(self.notices) > 200:
@@ -633,10 +754,12 @@ class RRCHub:
             if target_room:
                 buf = self.messages.setdefault(target_room, [])
                 buf.append(msg)
-                if len(buf) > 500:
-                    del buf[:len(buf)-500]
+                if cap is not None and len(buf) > cap:
+                    del buf[:len(buf)-cap]
                 if target_room != self.manager.active_room_for(self):
                     self.unread_rooms.add(target_room)
+        if target_room:
+            self._append_history(target_room, msg)
         self.manager._notify_messages(self, msg)
 
     def get_messages(self, room):
@@ -1108,6 +1231,27 @@ class RRCManager:
     def _store_path(self):
         return os.path.join(self.app.storagepath, "rrc_hubs")
 
+    def _history_root(self):
+        return os.path.join(self.app.storagepath, HISTORY_DIR_NAME)
+
+    def _history_dir(self, hub):
+        hub_key = hub.hub_hash.hex()
+        if hub.dest_name and hub.dest_name != DEFAULT_DEST_NAME:
+            suffix = hashlib.sha256(hub.dest_name.encode("utf-8")).hexdigest()[:8]
+            hub_key = hub_key + "__" + suffix
+        return os.path.join(self._history_root(), hub_key)
+
+    def _history_path(self, hub, room):
+        sanitized = HISTORY_FILENAME_SANITIZE_RE.sub("_", room or "")[:64]
+        room_hash = hashlib.sha256((room or "").encode("utf-8")).hexdigest()[:8]
+        filename = (sanitized + "_" + room_hash + ".log") if sanitized else (room_hash + ".log")
+        return os.path.join(self._history_dir(hub), filename)
+
+    def _ensure_history_dir(self, hub):
+        d = self._history_dir(hub)
+        os.makedirs(d, exist_ok=True)
+        return d
+
     def load(self):
         if self._loaded:
             return
@@ -1161,6 +1305,10 @@ class RRCManager:
                 no = e.get("nick")
                 if isinstance(no, str) and no:
                     hub.nick_override = no
+                try:
+                    hub._load_history()
+                except Exception as ex:
+                    RNS.log("Failed to load RRC history for "+hub.name+": "+str(ex), RNS.LOG_ERROR)
         except Exception as e:
             RNS.log("Failed to load RRC hubs: "+str(e), RNS.LOG_ERROR)
         finally:
