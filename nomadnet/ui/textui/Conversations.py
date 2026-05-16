@@ -1405,11 +1405,72 @@ class ConversationsDisplay():
             except Exception as e:
                 RNS.log("Could not update propagation node: "+str(e), RNS.LOG_ERROR)
 
+        def show_set_pn_dialog(_sender):
+            current_pn = self.app.get_user_selected_propagation_node()
+            current_str = RNS.hexrep(current_pn, delimit=False) if current_pn is not None else ""
+            pn_edit = urwid.Edit(caption="Hash : ", edit_text=current_str)
+            status_text = urwid.Text("", align=urwid.CENTER)
+
+            def reopen_sync(_b=None):
+                self.sync_conversations()
+
+            def save_pn(_b):
+                text = pn_edit.get_edit_text().strip().replace(":", "").replace(" ", "")
+                expected_len = RNS.Reticulum.TRUNCATED_HASHLENGTH // 8
+                if text == "":
+                    self.app.set_user_selected_propagation_node(None)
+                else:
+                    try:
+                        node_hash = bytes.fromhex(text)
+                    except ValueError:
+                        status_text.set_text("Invalid hex")
+                        return
+                    if len(node_hash) != expected_len:
+                        status_text.set_text("Must be "+str(expected_len)+" bytes ("+str(expected_len*2)+" hex chars)")
+                        return
+                    self.app.set_user_selected_propagation_node(node_hash)
+                reopen_sync()
+
+            def clear_pn(_b):
+                pn_edit.set_edit_text("")
+                self.app.set_user_selected_propagation_node(None)
+                reopen_sync()
+
+            inner = DialogLineBox(
+                urwid.Pile([
+                    urwid.Text("Enter an LXMF propagation\ndestination hash as hex.", align=urwid.CENTER),
+                    urwid.Divider(),
+                    pn_edit,
+                    urwid.Divider(),
+                    status_text,
+                    urwid.Columns([
+                        (urwid.WEIGHT, 0.3, urwid.Button("Save", on_press=save_pn)),
+                        (urwid.WEIGHT, 0.05, urwid.Text("")),
+                        (urwid.WEIGHT, 0.3, urwid.Button("Clear", on_press=clear_pn)),
+                        (urwid.WEIGHT, 0.05, urwid.Text("")),
+                        (urwid.WEIGHT, 0.3, urwid.Button("Close", on_press=reopen_sync)),
+                    ])
+                ]), title="Set Propagation Node",
+            )
+            inner.delegate = self
+            self.sync_dialog = None
+            overlay = urwid.Overlay(
+                inner, self.listbox,
+                align=urwid.CENTER, width=urwid.RELATIVE_100,
+                valign=urwid.MIDDLE, height=urwid.PACK,
+                left=2, right=2,
+            )
+            options = self.columns_widget.options(urwid.GIVEN, ConversationsDisplay.given_list_width)
+            self.columns_widget.contents[0] = (overlay, options)
+
+        set_pn_button = urwid.Button("Custom Node...", on_press=show_set_pn_dialog)
+
         if pn_options:
             node_picker = PropNodePicker(pn_options, selected_target, on_pn_picked)
             node_selector = urwid.Pile([
                 urwid.Text("Propagation node:"),
                 node_picker,
+                set_pn_button,
             ])
         else:
             node_selector = None
