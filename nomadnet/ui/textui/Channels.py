@@ -492,17 +492,19 @@ class RoomWidget(urwid.WidgetWrap):
             widget = _message_widget(self.app, self.hub, msg, link_delegate=self.link_delegate)
             wrapped = urwid.AttrMap(widget, None)
             body = self.messagelist._listbox.body
+            was_at_bottom = getattr(self, "_empty_placeholder", False) or getattr(self.messagelist, "bottom_is_visible", True)
             if getattr(self, "_empty_placeholder", False):
                 del body[:]
                 self._empty_placeholder = False
             body.append(wrapped)
             while len(body) > self.MAX_RENDERED_MESSAGES:
                 del body[0]
-            try:
-                self.messagelist._listbox.set_focus(len(body)-1)
-                self.messagelist._listbox.set_focus_valign("bottom")
-            except Exception:
-                pass
+            if was_at_bottom:
+                try:
+                    self.messagelist._listbox.set_focus(len(body)-1)
+                    self.messagelist._listbox.set_focus_valign("bottom")
+                except Exception:
+                    pass
         except Exception as e:
             RNS.log("Incremental append failed, falling back: "+str(e), RNS.LOG_DEBUG)
             self.update_messages(replace=True)
