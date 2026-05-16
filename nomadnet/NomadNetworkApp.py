@@ -86,6 +86,8 @@ class NomadNetworkApp:
 
         self.uimode        = None
 
+        self.announce_interval = 6*60*60
+
         if configdir == None:
             self.configdir = NomadNetworkApp.configdir
         else:
@@ -258,6 +260,8 @@ class NomadNetworkApp:
                 if not "served_file_requests" in self.peer_settings:
                     self.peer_settings["served_file_requests"] = 0
 
+                self.peer_settings["announce_interval"] = self.announce_interval
+
             except Exception as e:
                 RNS.logdest = RNS.LOG_STDOUT
                 RNS.log(f"Could not load local peer settings from {self.peersettingspath}", RNS.LOG_ERROR)
@@ -270,7 +274,7 @@ class NomadNetworkApp:
                 RNS.log("No peer settings file found, creating new...")
                 self.peer_settings = {
                     "display_name": "Anonymous Peer",
-                    "announce_interval": 6*60*60,
+                    "announce_interval": self.announce_interval,
                     "last_announce": None,
                     "node_last_announce": None,
                     "propagation_node": None,
@@ -769,7 +773,7 @@ class NomadNetworkApp:
                 if option == "announce_interval":
                     value = self.config["client"].as_int(option)
                     if value < 30: value = 30
-                    self.peer_settings["announce_interval"] = value*60
+                    self.announce_interval = value*60
 
                 if option == "try_propagation_on_send_fail":
                     value = self.config["client"].as_bool(option)
