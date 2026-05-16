@@ -718,6 +718,12 @@ Determines whether your LXMF address is automatically announced when the program
 <
 
 >>>
+`!announce_interval = 360`!
+>>>>
+Determines how often, in minutes, your LXMF address is announced on the network. Defaults to 6 hours.
+<
+
+>>>
 `!try_propagation_on_send_fail = yes`!
 >>>>
 When this option is enabled, and sending a message directly to a peer fails, Nomad Network will instead deliver the message to the propagation network, for later retrieval by the recipient.

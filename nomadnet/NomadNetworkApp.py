@@ -268,7 +268,7 @@ class NomadNetworkApp:
                 RNS.log("No peer settings file found, creating new...")
                 self.peer_settings = {
                     "display_name": "Anonymous Peer",
-                    "announce_interval": None,
+                    "announce_interval": 6*60*60,
                     "last_announce": None,
                     "node_last_announce": None,
                     "propagation_node": None,
@@ -447,6 +447,9 @@ class NomadNetworkApp:
                 RNS.log("Initiating automatic LXMF sync", RNS.LOG_VERBOSE)
                 self.request_lxmf_sync(limit=self.lxmf_sync_limit)
 
+            if now > self.peer_settings["last_announce"] + self.peer_settings["announce_interval"]:
+                self.announce_now()
+
             time.sleep(self.job_interval)
 
     def set_display_name(self, display_name):
@@ -530,6 +533,7 @@ class NomadNetworkApp:
             self.message_router.cancel_propagation_node_requests()
 
     def announce_now(self):
+        RNS.log("Sending lxmf.delivery announce", RNS.LOG_VERBOSE)
         self.message_router.set_inbound_stamp_cost(self.lxmf_destination.hash, self.required_stamp_cost)
         self.lxmf_destination.display_name = self.peer_settings["display_name"]
         self.message_router.announce(self.lxmf_destination.hash)
@@ -759,6 +763,11 @@ class NomadNetworkApp:
                 if option == "announce_at_start":
                     value = self.config["client"].as_bool(option)
                     self.peer_announce_at_start = value
+
+                if option == "announce_interval":
+                    value = self.config["client"].as_int(option)
+                    if value < 30: value = 30
+                    self.peer_settings["announce_interval"] = value*60
 
                 if option == "try_propagation_on_send_fail":
                     value = self.config["client"].as_bool(option)
@@ -1094,6 +1103,10 @@ notify_on_new_message = yes
 # By default, the peer is announced at startup
 # to let other peers reach it immediately.
 announce_at_start = yes
+
+# Automatic announce interval in minutes for
+# your LXMF address. 6 hours by default.
+announce_interval = 360
 
 # By default, the client will try to deliver a
 # message via the LXMF propagation network, if
