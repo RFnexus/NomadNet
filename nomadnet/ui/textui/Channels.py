@@ -860,18 +860,19 @@ def _message_widget(app, hub, m, link_delegate=None):
         pass
 
     if m.kind == "system":
+        evt_icon = g["arrow_l"] if m.text.endswith(" left") else g["arrow_r"]
         spans, has_links = _body_markup(m.text or "", body_attr="irc_system", own_nick=own_nick)
-        markup = [_ts_prefix(m.ts), ("irc_system", " "+g["arrow_r"]+" ")] + spans
+        markup = [_ts_prefix(m.ts), ("irc_system", evt_icon+" ")] + spans
         return _wrap_text(markup, link_delegate if has_links else None)
 
     if m.kind == "notice":
         spans, has_links = _body_markup(m.text or "", body_attr="irc_notice", own_nick=own_nick)
-        markup = [_ts_prefix(m.ts), ("irc_notice", " "+g["info"]+"  ")] + spans
+        markup = [_ts_prefix(m.ts), ("irc_notice", g["info"]+" ")] + spans
         return _wrap_text(markup, link_delegate if has_links else None)
 
     if m.kind == "error":
         spans, has_links = _body_markup(m.text or "", body_attr="irc_error", own_nick=own_nick)
-        markup = [_ts_prefix(m.ts), ("irc_error", " "+g["warning"]+"  ")] + spans
+        markup = [_ts_prefix(m.ts), ("irc_error", g["warning"]+" ")] + spans
         return _wrap_text(markup, link_delegate if has_links else None)
 
     own = False
