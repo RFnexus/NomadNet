@@ -1,4 +1,5 @@
 import RNS
+import collections
 import os
 import shutil
 import time
@@ -133,7 +134,40 @@ class ConversationsDisplay():
 
         self.shortcuts_display = self.list_shortcuts
         self.widget = self.columns_widget
-        nomadnet.Conversation.created_callback = self.update_conversation_list
+
+        self._pending_actions = collections.deque()
+        self._wake_fd = None
+        try:
+            self._wake_fd = self.app.ui.loop.watch_pipe(self._process_pending)
+        except Exception:
+            pass
+
+        nomadnet.Conversation.created_callback = lambda: self._wake(self.update_conversation_list)
+
+    def _process_pending(self, data):
+        while True:
+            try:
+                action = self._pending_actions.popleft()
+            except IndexError:
+                break
+            try:
+                action()
+            except Exception as e:
+                RNS.log("Conversations UI action failed: "+str(e), RNS.LOG_ERROR)
+        return True
+
+    def _wake(self, action):
+        self._pending_actions.append(action)
+        if self._wake_fd is not None:
+            try:
+                os.write(self._wake_fd, b".")
+                return
+            except Exception:
+                pass
+        try:
+            self.app.ui.loop.set_alarm_in(0.0, lambda l, d: self._process_pending(None))
+        except Exception:
+            pass
 
     def focus_change_event(self):
         if not self.dialog_open:
@@ -1024,7 +1058,7 @@ class ConversationWidget(urwid.WidgetWrap):
 
                 self.update_message_widgets()
 
-                self.conversation.register_changed_callback(self.conversation_changed)
+                self.conversation.register_changed_callback(self._on_conversation_changed_from_callback)
 
                 #title_editor  = MessageEdit(caption="\u270E", edit_text="", multiline=False)
                 title_editor  = MessageEdit(caption="", edit_text="", multiline=False)
@@ -1242,6 +1276,13 @@ class ConversationWidget(urwid.WidgetWrap):
             self.save_focused_attachments()
         else:
             return super(ConversationWidget, self).keypress(size, key)
+
+    def _on_conversation_changed_from_callback(self, conversation):
+        delegate = getattr(self, "delegate", None)
+        if delegate is not None and hasattr(delegate, "_wake"):
+            delegate._wake(lambda: self.conversation_changed(conversation))
+        else:
+            self.conversation_changed(conversation)
 
     def conversation_changed(self, conversation):
         if hasattr(self, "peer_info_widget"):
