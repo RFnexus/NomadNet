@@ -459,8 +459,6 @@ class RoomWidget(urwid.WidgetWrap):
         right = status_label+" "
         self.peer_info_widget.original_widget.set_text(left+" | "+right)
 
-    MAX_RENDERED_MESSAGES = 500
-
     def update_messages(self, replace=False):
         msgs = self.hub.get_messages(self.room) if (self.hub is not None and self.room is not None) else []
         widgets = []
@@ -497,8 +495,10 @@ class RoomWidget(urwid.WidgetWrap):
                 del body[:]
                 self._empty_placeholder = False
             body.append(wrapped)
-            while len(body) > self.MAX_RENDERED_MESSAGES:
-                del body[0]
+            cap = getattr(self.app, "rrc_history_per_room_cap", 0)
+            if cap and cap > 0:
+                while len(body) > cap:
+                    del body[0]
             if was_at_bottom:
                 try:
                     self.messagelist._listbox.set_focus(len(body)-1)
