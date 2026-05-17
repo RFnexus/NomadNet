@@ -2,6 +2,7 @@ import RNS
 
 from .Network import *
 from .Conversations import *
+from .Channels import *
 from .Directory import *
 from .Config import *
 from .Interfaces import *
@@ -15,6 +16,7 @@ class SubDisplays():
         self.app = app
         self.network_display = NetworkDisplay(self.app)
         self.conversations_display = ConversationsDisplay(self.app)
+        self.channels_display = ChannelsDisplay(self.app)
         self.directory_display = DirectoryDisplay(self.app)
         self.config_display = ConfigDisplay(self.app)
         self.interface_display = InterfaceDisplay(self.app)
@@ -103,6 +105,11 @@ class MainDisplay():
         self.sub_displays.active_display = self.sub_displays.conversations_display
         self.update_active_sub_display()
 
+    def show_channels(self, user_data):
+        self.sub_displays.active_display = self.sub_displays.channels_display
+        self.update_active_sub_display()
+        self.sub_displays.channels_display.start()
+
     def show_directory(self, user_data):
         self.sub_displays.active_display = self.sub_displays.directory_display
         self.update_active_sub_display()
@@ -181,6 +188,7 @@ class MenuDisplay():
         menu_text             = (urwid.PACK, self.menu_indicator)
         button_network        = (11, MenuButton("Network", on_press=handler.show_network))
         button_conversations  = (17, MenuButton("Conversations", on_press=handler.show_conversations))
+        button_channels       = (12, MenuButton("Channels", on_press=handler.show_channels))
         button_directory      = (13, MenuButton("Directory", on_press=handler.show_directory))
         button_map            = (7,  MenuButton("Map", on_press=handler.show_map))
         button_log            = (7,  MenuButton("Log", on_press=handler.show_log))
@@ -191,9 +199,9 @@ class MenuDisplay():
 
         # buttons = [menu_text, button_conversations, button_node, button_directory, button_map]
         if self.app.config["textui"]["hide_guide"]:
-            buttons = [menu_text, button_conversations, button_network, button_log, button_interfaces, button_config, button_quit]
+            buttons = [menu_text, button_conversations, button_network, button_channels, button_log, button_interfaces, button_config, button_quit]
         else:
-            buttons = [menu_text, button_conversations, button_network, button_log, button_interfaces, button_config, button_guide, button_quit]
+            buttons = [menu_text, button_conversations, button_network, button_channels, button_log, button_interfaces, button_config, button_guide, button_quit]
 
         columns = MenuColumns(buttons, dividechars=1)
         columns.handler = handler

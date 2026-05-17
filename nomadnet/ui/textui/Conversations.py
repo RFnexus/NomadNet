@@ -1,4 +1,5 @@
 import RNS
+import collections
 import os
 import shutil
 import time
@@ -133,7 +134,40 @@ class ConversationsDisplay():
 
         self.shortcuts_display = self.list_shortcuts
         self.widget = self.columns_widget
-        nomadnet.Conversation.created_callback = self.update_conversation_list
+
+        self._pending_actions = collections.deque()
+        self._wake_fd = None
+        try:
+            self._wake_fd = self.app.ui.loop.watch_pipe(self._process_pending)
+        except Exception:
+            pass
+
+        nomadnet.Conversation.created_callback = lambda: self._wake(self.update_conversation_list)
+
+    def _process_pending(self, data):
+        while True:
+            try:
+                action = self._pending_actions.popleft()
+            except IndexError:
+                break
+            try:
+                action()
+            except Exception as e:
+                RNS.log("Conversations UI action failed: "+str(e), RNS.LOG_ERROR)
+        return True
+
+    def _wake(self, action):
+        self._pending_actions.append(action)
+        if self._wake_fd is not None:
+            try:
+                os.write(self._wake_fd, b".")
+                return
+            except Exception:
+                pass
+        try:
+            self.app.ui.loop.set_alarm_in(0.0, lambda l, d: self._process_pending(None))
+        except Exception:
+            pass
 
     def focus_change_event(self):
         if not self.dialog_open:
@@ -1024,7 +1058,7 @@ class ConversationWidget(urwid.WidgetWrap):
 
                 self.update_message_widgets()
 
-                self.conversation.register_changed_callback(self.conversation_changed)
+                self.conversation.register_changed_callback(self._on_conversation_changed_from_callback)
 
                 #title_editor  = MessageEdit(caption="\u270E", edit_text="", multiline=False)
                 title_editor  = MessageEdit(caption="", edit_text="", multiline=False)
@@ -1242,6 +1276,13 @@ class ConversationWidget(urwid.WidgetWrap):
             self.save_focused_attachments()
         else:
             return super(ConversationWidget, self).keypress(size, key)
+
+    def _on_conversation_changed_from_callback(self, conversation):
+        delegate = getattr(self, "delegate", None)
+        if delegate is not None and hasattr(delegate, "_wake"):
+            delegate._wake(lambda: self.conversation_changed(conversation))
+        else:
+            self.conversation_changed(conversation)
 
     def conversation_changed(self, conversation):
         if hasattr(self, "peer_info_widget"):
@@ -1798,32 +1839,34 @@ class ClickableAttachment(urwid.Text):
             self.set_text("  "+g["cross"]+" Save failed: "+str(e))
 
 
-def _copy_attachment_to_dest(filename, src_path):
+def _resolve_attachment_save_path(filename):
     app = nomadnet.NomadNetworkApp.get_shared_instance()
     save_dir = app.attachment_save_path if app.attachment_save_path else app.downloads_path
     if not os.path.isdir(save_dir):
         os.makedirs(save_dir)
-    save_path = os.path.join(save_dir, filename)
+    safe_name = ConversationMessage.safe_attachment_name(filename)
+    base_dir = os.path.realpath(save_dir) + os.sep
+    candidate = os.path.realpath(os.path.join(save_dir, safe_name))
+    if not (candidate + os.sep).startswith(base_dir):
+        raise OSError(13, os.strerror(13))
     counter = 0
-    base, ext = os.path.splitext(filename)
-    while os.path.isfile(save_path):
+    base, ext = os.path.splitext(safe_name)
+    while os.path.isfile(candidate):
         counter += 1
-        save_path = os.path.join(save_dir, base+"_"+str(counter)+ext)
+        candidate = os.path.realpath(os.path.join(save_dir, base+"_"+str(counter)+ext))
+        if not (candidate + os.sep).startswith(base_dir):
+            raise OSError(13, os.strerror(13))
+    return candidate
+
+
+def _copy_attachment_to_dest(filename, src_path):
+    save_path = _resolve_attachment_save_path(filename)
     shutil.copy2(src_path, save_path)
     return save_path
 
 
 def _save_attachment_to_disk(filename, data):
-    app = nomadnet.NomadNetworkApp.get_shared_instance()
-    save_dir = app.attachment_save_path if app.attachment_save_path else app.downloads_path
-    if not os.path.isdir(save_dir):
-        os.makedirs(save_dir)
-    save_path = os.path.join(save_dir, filename)
-    counter = 0
-    base, ext = os.path.splitext(filename)
-    while os.path.isfile(save_path):
-        counter += 1
-        save_path = os.path.join(save_dir, base+"_"+str(counter)+ext)
+    save_path = _resolve_attachment_save_path(filename)
     with open(save_path, "wb") as f:
         f.write(data)
     return save_path
