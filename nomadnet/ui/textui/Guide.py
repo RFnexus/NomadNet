@@ -449,7 +449,7 @@ I2P Tunneled: Enable for connecting through I2P
 KISS Framing: Enable for KISS framing for software modems 
 ```
 
-This interface is commonly used to connect to Reticulum testnets or other persistent nodes on the Internet.
+This interface is commonly used to connect to Reticulum gateways or other persistent nodes on the Internet.
 
 >>TCPServerInterface
 
@@ -998,24 +998,11 @@ For future reference, you can download the Reticulum Manual in PDF format here:
 
 It might be nice to keep that handy when you are not connected to the Internet, as it is full of information and examples that are also very relevant to Nomad Network.
 
->The Reticulum Testnet
+>The Distributed Backbone
 
-If you have Internet access, and just want to get started experimenting, you are welcome to join the Unsigned.io RNS Testnet. The testnet is just that, an informal network for testing and experimenting. It will be up most of the time, and anyone can join, but it also means that there's no guarantees for service availability.
+If you have Internet access, and just want to get started experimenting, you can connected to the distributed global Reticulum backbone. For more information about this, see the Reticulum Manual, or sites such as https://directory.rns.recips or https://rmap.world.
 
-The Testnet also runs the latest version of Reticulum, often even a short while before it is publicly released, which means strange behaviour might occur. If none of that scares you, add the following interface to your Reticulum configuration file to join:
-
->>
-[[RNS Testnet Dublin]]
-  type = TCPClientInterface
-  enabled = yes
-  target_host = dublin.connect.reticulum.network
-  target_port = 4965
-<
-
-If you connect to the testnet, you can leave nomadnet running for a while and wait for it to receive announces from other nodes on the network that host pages or services, or you can try connecting directly to some nodes listed here:
-
- - Dublin Hub Testnet Node    : `!`[abb3ebcd03cb2388a838e70c001291f9]`!
- - Frankfurt Hub Testnet Node : `!`[ea6a715f814bdc37e56f80c34da6ad51]`!
+If you connect to the public backbone, you can leave nomadnet running for a while and wait for it to receive announces from other nodes on the network that host pages or services, or you can try connecting directly to some nodes listed here:
 
 To browse pages on a node that is not currently known, open the URL dialog in the `![ Network ]`! section of the program by pressing `!Ctrl+U`!, paste or enter the address and select `!< Go >`! or press enter. Nomadnet will attempt to discover and connect to the requested node. You can save the currently connected node by pressing `!Ctrl+S`!.
 '''
