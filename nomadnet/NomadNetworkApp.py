@@ -153,7 +153,7 @@ class NomadNetworkApp:
         self.accept_invalid_stamps = False
 
         self.rrc_history_per_room_cap = 500
-
+        self.rrc_filter_loaded_history = True
 
         if not os.path.isdir(self.storagepath):
             os.makedirs(self.storagepath)
@@ -909,12 +909,15 @@ class NomadNetworkApp:
         if "rrc" in self.config:
             for option in self.config["rrc"]:
                 if option == "history_per_room_cap":
-                    try:
-                        value = self.config["rrc"].as_int(option)
-                    except Exception:
-                        value = None
+                    try: value = self.config["rrc"].as_int(option)
+                    except Exception: value = None
                     if value is not None and value >= 0:
                         self.rrc_history_per_room_cap = value
+                
+                if option == "filter_loaded_history":
+                    try: value = self.config["rrc"].as_bool(option)
+                    except Exception: value = True
+                    self.rrc_filter_loaded_history = value
 
         if "node" in self.config:
             if not "enable_node" in self.config["node"]:
@@ -1239,6 +1242,11 @@ sanitize_names = yes
 # is visible. Set to 0 to keep every message
 # in memory (full history).
 history_per_room_cap = 500
+
+# You can choose whether to filter system
+# and notice events when room history is
+# loaded.
+filter_loaded_history = yes
 
 [node]
 

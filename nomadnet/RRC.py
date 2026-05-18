@@ -626,6 +626,11 @@ class RRCHub:
             return None
         return v if v > 0 else None
 
+    def _filter_history(self):
+        try: v = getattr(self.manager.app, "rrc_filter_loaded_history", True)
+        except Exception: return True
+        return v
+
     def _entry_for(self, msg):
         return {
             H_KIND:    msg.kind,
@@ -704,9 +709,16 @@ class RRCHub:
             if decode_error is not None:
                 self._log("history file for #"+room+" is corrupt, truncating to last "+str(len(window))+" valid messages: "+str(decode_error), RNS.LOG_ERROR)
             msgs = []
+            filter_msgs = self._filter_history()
             for e in window:
                 m = self._msg_from_entry(room, e)
                 if m is not None:
+                    if filter_msgs:
+                        should_filter = False
+                        if   m.kind == "system": should_filter = True
+                        elif m.kind == "notice": should_filter = True
+                        if should_filter: continue
+
                     msgs.append(m)
             with self._lock:
                 self.messages[room] = msgs
