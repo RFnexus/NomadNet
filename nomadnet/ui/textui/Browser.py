@@ -180,8 +180,9 @@ class Browser:
             if can_display:
                 self.link_status_showing = True
                 lt_str = str(link_target)
-                if len(lt_str) > 80: lt_str = lt_str[:80]+"…"
-                self.browser_footer = urwid.AttrMap(urwid.Pile([urwid.Divider(self.g["divider1"]), urwid.Text("Link to: "+lt_str)]), "browser_controls")
+                lmax = 128
+                if len(lt_str) > lmax: lt_str = lt_str[:lmax]+"…"
+                self.browser_footer = urwid.AttrMap(urwid.Pile([urwid.Divider(self.g["divider1"]), urwid.Text("Link to "+lt_str)]), "browser_controls")
                 self.frame.contents["footer"] = (self.browser_footer, self.frame.options())
                 if self.page_background_color != None or self.page_foreground_color != None:
                     style_name = make_style(default_state(fg=self.page_foreground_color, bg=self.page_background_color))
