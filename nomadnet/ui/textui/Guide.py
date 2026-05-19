@@ -812,7 +812,7 @@ Whether or not to render micron formatting in messages. When using micron in mes
 <
 
 >>>
-`!justify_msgs = no`!
+`!justify_msgs = yes`!
 `!space_msgs = no`!
 >>>>
 Rendering layout options for messages.

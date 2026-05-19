@@ -985,7 +985,7 @@ def _message_widget(app, hub, m, link_delegate=None):
     nick_micron = f"`f{nick_attr}<{sender}>`f "
     if app.rrc_ui_justify_msgs:
         prefix_rendered = _render_body(f"{prefix_micron}", fg=t["text"])
-        body_rendered   = _render_body(f"{nick_micron}{message_body}", fg=t["text"])
+        body_rendered   = _render_body(f"{nick_micron}{message_body}", link_delegate=ld, fg=t["text"])
         if app.rrc_ui_space_msgs: body_rendered.append(urwid.Text(""))
         columns         = urwid.Columns([(urwid.PACK, urwid.Pile(prefix_rendered)), urwid.Pile(body_rendered)], dividechars=1)
         final_widget    = urwid.Padding(columns, left=1)

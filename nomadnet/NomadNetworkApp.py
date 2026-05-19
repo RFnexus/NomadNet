@@ -156,7 +156,7 @@ class NomadNetworkApp:
         self.rrc_history_per_room_cap = 500
         self.rrc_filter_loaded_history = True
         self.rrc_ephemeral_notices = 600
-        self.rrc_ui_justify_msgs = False
+        self.rrc_ui_justify_msgs = True
         self.rrc_ui_space_msgs = False
         self.rrc_ui_render_markdown = True
         self.rrc_ui_render_micron = True
@@ -936,7 +936,7 @@ class NomadNetworkApp:
 
                 if option == "justify_msgs":
                     try: value = self.config["rrc"].as_bool(option)
-                    except Exception: value = False
+                    except Exception: value = True
                     self.rrc_ui_justify_msgs = value
                 
                 if option == "space_msgs":
@@ -1296,7 +1296,7 @@ ephemeral_notices = 10
 # Other display and formatting options:
 render_markdown = yes
 render_micron = yes
-justify_msgs = no
+justify_msgs = yes
 space_msgs = no
 
 [node]
