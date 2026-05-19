@@ -155,6 +155,10 @@ class NomadNetworkApp:
         self.rrc_history_per_room_cap = 500
         self.rrc_filter_loaded_history = True
         self.rrc_ephemeral_notices = 600
+        self.rrc_ui_justify_msgs = False
+        self.rrc_ui_space_msgs = False
+        self.rrc_ui_render_markdown = True
+        self.rrc_ui_render_micron = True
 
         if not os.path.isdir(self.storagepath):
             os.makedirs(self.storagepath)
@@ -925,6 +929,26 @@ class NomadNetworkApp:
                     except Exception: value = 0
                     self.rrc_ephemeral_notices = value*60
 
+                if option == "justify_msgs":
+                    try: value = self.config["rrc"].as_bool(option)
+                    except Exception: value = False
+                    self.rrc_ui_justify_msgs = value
+                
+                if option == "space_msgs":
+                    try: value = self.config["rrc"].as_bool(option)
+                    except Exception: value = False
+                    self.rrc_ui_space_msgs = value
+                
+                if option == "render_markdown":
+                    try: value = self.config["rrc"].as_bool(option)
+                    except Exception: value = True
+                    self.rrc_ui_render_markdown = value
+                
+                if option == "render_micron":
+                    try: value = self.config["rrc"].as_bool(option)
+                    except Exception: value = True
+                    self.rrc_ui_render_micron = value
+
         if "node" in self.config:
             if not "enable_node" in self.config["node"]:
                 self.enable_node = False
@@ -1260,6 +1284,12 @@ filter_loaded_history = yes
 # the specified time in minutes. Set to 0
 # to disable and keep forever.
 ephemeral_notices = 10
+
+# Other display and formatting options:
+render_markdown = yes
+render_micron = yes
+justify_msgs = no
+space_msgs = no
 
 [node]
 

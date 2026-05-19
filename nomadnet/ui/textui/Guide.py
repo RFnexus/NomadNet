@@ -793,6 +793,25 @@ Whether to filter notices and system message when initially loading room history
 If enabled, notices and system messages will disappear from the history after a while. 0 disables, otherwise sets the timeout in minutes.
 <
 
+>>>
+`!render_markdown = yes`!
+>>>>
+Whether or not to render markdown formatting in messages.
+<
+
+>>>
+`!render_micron = yes`!
+>>>>
+Whether or not to render micron formatting in messages. When using micron in messages, use the ¦ character in place of backticks.
+<
+
+>>>
+`!justify_msgs = no`!
+`!space_msgs = no`!
+>>>>
+Rendering layout options for messages.
+<
+
 >> Text UI Section
 
 This section hold configuration directives related to the look and feel of the text-based user interface of the program. It is delimited by the `![textui]`! header in the configuration file. Available directives, along with their default values, are as follows:

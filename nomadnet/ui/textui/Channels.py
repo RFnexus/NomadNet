@@ -10,6 +10,8 @@ import nomadnet
 from nomadnet.RRC import RRCHub
 from nomadnet.vendor.additional_urwid_widgets import IndicativeListBox
 from nomadnet.ui.textui.MicronParser import LinkableText, LinkSpec
+from RNS.Utilities.rngit.util import MarkdownToMicron
+from RNS.Utilities.rngit.highlight import SyntaxHighlighter
 from .MicronParser import markup_to_attrmaps
 from nomadnet.util import strip_modifiers
 
@@ -897,6 +899,49 @@ class _ChatLinkDelegate:
         except Exception as e:
             RNS.log("Could not open page link: "+str(e), RNS.LOG_ERROR)
 
+def strip_micron(text):
+    text = re.sub(r'`[FB][0-9a-fA-F]{3}', '', text)
+    text = re.sub(r'`[FB]T[0-9a-fA-F]{6}', '', text)
+    text = re.sub(r'`[!*_=]', '', text)
+    text = re.sub(r'`f`b', '', text)
+    text = re.sub(r'`f', '', text)
+    text = re.sub(r'`b', '', text)
+    text = re.sub(r'`<', '', text)
+    text = re.sub(r'`>', '', text)
+    text = re.sub(r'`{', '', text)
+    return text
+
+def strip_escaped_micron(text):
+    text = re.sub(r'¦[FB][0-9a-fA-F]{3}', '', text)
+    text = re.sub(r'¦[FB]T[0-9a-fA-F]{6}', '', text)
+    text = re.sub(r'¦[!*_=]', '', text)
+    text = re.sub(r'¦f`b', '', text)
+    text = re.sub(r'¦f', '', text)
+    text = re.sub(r'¦b', '', text)
+    text = re.sub(r'¦<', '', text)
+    text = re.sub(r'¦>', '', text)
+    text = re.sub(r'¦{', '', text)
+    return text
+
+def unescape_micron(text):
+    text = re.sub(r'¦([FB][0-9a-fA-F]{3})', r'`\1', text)
+    text = re.sub(r'¦([FB]T[0-9a-fA-F]{6})', r'`\1', text)
+    text = re.sub(r'¦([!*_=])', r'`\1', text)
+    text = re.sub(r'¦(f`b)', r'`\1', text)
+    text = re.sub(r'¦(f)', r'`\1', text)
+    text = re.sub(r'¦(b)', r'`\1', text)
+    text = re.sub(r'¦(<)', r'`\1', text)
+    text = re.sub(r'¦(>)', r'`\1', text)
+    text = re.sub(r'¦({)', r'`\1', text)
+    return text
+
+def strip_non_formatting_tags(text):
+    text = re.sub(r'`<', '', text)
+    text = re.sub(r'`>', '', text)
+    text = re.sub(r'`{', '', text)
+    return text
+
+mdc = MarkdownToMicron(max_width=80, syntax_highlighter=SyntaxHighlighter(), url_scope=None)
 def _message_widget(app, hub, m, link_delegate=None):
     t = theme_dark if app.config["textui"]["theme"] == nomadnet.ui.TextUI.THEME_DARK else theme_light
     g = app.ui.glyphs
@@ -960,16 +1005,34 @@ def _message_widget(app, hub, m, link_delegate=None):
             label = mb.split("`")[0]
             url = f"{kind}://{mb}"
             link_mu = f"`_`F{t['link']}`[{label}`{url}]`f`_"
+            link_md = f"[{label}]({url})"
             message_body += link_mu
-        else: message_body += mb
+        else:
+            if app.rrc_ui_render_micron:
+                mbo = mdc.format_block(mb) if app.rrc_ui_render_markdown else mb
+                mbo = unescape_micron(mbo)
+                message_body += strip_non_formatting_tags(mbo)
+
+            else:
+                mbo = mdc.format_block(strip_escaped_micron(mb)) if app.rrc_ui_render_markdown else strip_escaped_micron(mb)
+                message_body += strip_non_formatting_tags(mbo)
 
     nick_attr = f"`F{t['nick_self']}" if own else f"`F{t['nick_peer']}"
     irc_ts = f"`F{t['ts']}"
 
-    prefix_micron = f"{irc_ts}{_ts_prefix_raw(m.ts)}`f {nick_attr}<{sender}>`f "
-    
-    rendered = _render_body(f"{prefix_micron}{message_body}", link_delegate=ld)
-    final_widget = urwid.Padding(urwid.Pile(rendered), left=1)
+    prefix_micron = f"{irc_ts}{_ts_prefix_raw(m.ts)}"
+    nick_micron = f"`f{nick_attr}<{sender}>`f "
+    if app.rrc_ui_justify_msgs:
+        prefix_rendered = _render_body(f"{prefix_micron}")
+        body_rendered   = _render_body(f"{nick_micron}{message_body}")
+        if app.rrc_ui_space_msgs: body_rendered.append(urwid.Text(""))
+        columns         = urwid.Columns([(urwid.PACK, urwid.Pile(prefix_rendered)), urwid.Pile(body_rendered)], dividechars=1)
+        final_widget    = urwid.Padding(columns, left=1)
+
+    else:
+        rendered = _render_body(f"{prefix_micron}{nick_micron}{message_body}", link_delegate=ld)
+        if app.rrc_ui_space_msgs: rendered.append(urwid.Text(""))
+        final_widget = urwid.Padding(urwid.Pile(rendered), left=1)
     
     final_widget.msg = m
     return final_widget
