@@ -29,13 +29,6 @@ _LINK_RE = re.compile(
     r"|(?P<room>(?<!\w)#[A-Za-z0-9][A-Za-z0-9_\-]{0,62})"
 )
 
-
-
-
-
-
-
-
 def _link_attrs():
     return {
         "room": urwid.AttrSpec("light cyan,underline", "default", colors=256),
@@ -43,9 +36,7 @@ def _link_attrs():
         "page": urwid.AttrSpec("light blue,underline", "default", colors=256),
     }
 
-
 _LINK_ATTRS = _link_attrs()
-
 
 def _scan_links(text):
     for m in _LINK_RE.finditer(text):
@@ -366,6 +357,7 @@ class RoomWidget(urwid.WidgetWrap):
         self.app = nomadnet.NomadNetworkApp.get_shared_instance()
 
         self.messagelist = None
+        self.last_history_clean = 0
         self.peer_info_widget = urwid.AttrMap(urwid.Text(""), "msg_header_sent")
         self._update_peer_info()
 
@@ -489,11 +481,33 @@ class RoomWidget(urwid.WidgetWrap):
         try:
             widget = _message_widget(self.app, self.hub, msg, link_delegate=self.link_delegate)
             wrapped = urwid.AttrMap(widget, None)
-            body = self.messagelist._listbox.body
+            body = self.messagelist.get_body()
             was_at_bottom = getattr(self, "_empty_placeholder", False) or getattr(self.messagelist, "bottom_is_visible", True)
             if getattr(self, "_empty_placeholder", False):
                 del body[:]
                 self._empty_placeholder = False
+            
+            if self.hub.clean_last_removed > self.last_history_clean:
+                try:
+                    hub_msgs = self.hub.get_messages(self.room) if (self.hub is not None and self.room is not None) else []
+                    self.last_history_clean = time.time()
+                    c = self.messagelist.body_len()
+                    old = set()
+                    for i in range(0, c):
+                        msg = None
+                        w = self.messagelist.get_item(i)
+                        if hasattr(w, "_original_widget"): o = w._original_widget
+                        else: o = None
+                        if hasattr(o, "msg"): msg = o.msg
+                        elif hasattr(w, "msg"): msg = w.msg
+                        if msg and not msg in hub_msgs: old.add(i)
+
+                    for i in reversed(list(old)): self.messagelist.delete_position(i)
+                        
+                except Exception as e:
+                    RNS.log("Error while cleaning room history", RNS.LOG_ERROR)
+                    RNS.trace_exception(e)
+
             body.append(wrapped)
             cap = getattr(self.app, "rrc_history_per_room_cap", 0)
             if cap and cap > 0:
@@ -865,17 +879,23 @@ def _message_widget(app, hub, m, link_delegate=None):
         evt_icon = g["arrow_l"] if m.text.endswith(" left") else g["arrow_r"]
         spans, has_links = _body_markup(m.text or "", body_attr="irc_system", own_nick=own_nick)
         markup = [_ts_prefix(m.ts), ("irc_system", evt_icon+" ")] + spans
-        return _wrap_text(markup, link_delegate if has_links else None)
+        final_widget = _wrap_text(markup, link_delegate if has_links else None)
+        final_widget.msg = m
+        return final_widget
 
     if m.kind == "notice":
         spans, has_links = _body_markup(m.text or "", body_attr="irc_notice", own_nick=own_nick)
         markup = [_ts_prefix(m.ts), ("irc_notice", g["info"]+" ")] + spans
-        return _wrap_text(markup, link_delegate if has_links else None)
+        final_widget = _wrap_text(markup, link_delegate if has_links else None)
+        final_widget.msg = m
+        return final_widget
 
     if m.kind == "error":
         spans, has_links = _body_markup(m.text or "", body_attr="irc_error", own_nick=own_nick)
         markup = [_ts_prefix(m.ts), ("irc_error", g["warning"]+" ")] + spans
-        return _wrap_text(markup, link_delegate if has_links else None)
+        final_widget = _wrap_text(markup, link_delegate if has_links else None)
+        final_widget.msg = m
+        return final_widget
 
     own = False
     try:
@@ -895,7 +915,9 @@ def _message_widget(app, hub, m, link_delegate=None):
     body = m.text or ""
     spans, has_links = _body_markup(body, body_attr="body_text", own_nick=None if own else own_nick)
     markup = [_ts_prefix(m.ts), (nick_attr, "<"+sender+">"), ("body_text", " ")] + spans
-    return _wrap_text(markup, link_delegate if has_links else None)
+    final_widget = _wrap_text(markup, link_delegate if has_links else None)
+    final_widget.msg = m
+    return final_widget
 
 
 def _wrap_text(markup, link_delegate):

@@ -781,6 +781,18 @@ This section hold configuration directives related to the RRC client behaviour. 
 Maximum number of messages retained per room in the in-memory scrollback buffer, and the number of messages restored from on-disk history at startup. The on-disk log itself is appended to indefinitely; this cap only controls how much backlog is visible. Set to 0 to keep every message in memory.
 <
 
+>>>
+`!filter_loaded_history = yes`!
+>>>>
+Whether to filter notices and system message when initially loading room history.
+<
+
+>>>
+`!ephemeral_notices = 10`!
+>>>>
+If enabled, notices and system messages will disappear from the history after a while. 0 disables, otherwise sets the timeout in minutes.
+<
+
 >> Text UI Section
 
 This section hold configuration directives related to the look and feel of the text-based user interface of the program. It is delimited by the `![textui]`! header in the configuration file. Available directives, along with their default values, are as follows:

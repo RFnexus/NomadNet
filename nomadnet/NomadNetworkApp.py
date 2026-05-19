@@ -154,6 +154,7 @@ class NomadNetworkApp:
 
         self.rrc_history_per_room_cap = 500
         self.rrc_filter_loaded_history = True
+        self.rrc_ephemeral_notices = 600
 
         if not os.path.isdir(self.storagepath):
             os.makedirs(self.storagepath)
@@ -918,6 +919,11 @@ class NomadNetworkApp:
                     try: value = self.config["rrc"].as_bool(option)
                     except Exception: value = True
                     self.rrc_filter_loaded_history = value
+                
+                if option == "ephemeral_notices":
+                    try: value = self.config["rrc"].as_float(option)
+                    except Exception: value = 0
+                    self.rrc_ephemeral_notices = value*60
 
         if "node" in self.config:
             if not "enable_node" in self.config["node"]:
@@ -1247,6 +1253,13 @@ history_per_room_cap = 500
 # and notice events when room history is
 # loaded.
 filter_loaded_history = yes
+
+# You can choose whether notices and sys
+# messages persist indefinitely, or are
+# removed from the message history after
+# the specified time in minutes. Set to 0
+# to disable and keep forever.
+ephemeral_notices = 10
 
 [node]
 

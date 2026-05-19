@@ -201,6 +201,9 @@ class RRCHub:
     STATUS_CONNECTED    = 2
     STATUS_FAILED       = 3
 
+    CLEAN_HISTORY_INTERVAL = 5
+    SYS_NOTICE_TIMEOUT     = 600
+
     def __init__(self, manager, hub_hash, dest_name=None, name=None):
         self.manager   = manager
         self.hub_hash  = hub_hash
@@ -242,6 +245,8 @@ class RRCHub:
         self._reconnect_attempts = 0
         self._reconnect_timer = None
         self._pending_pings = {}
+        self._last_history_clean = 0
+        self.clean_last_removed = 0
 
         self.available_rooms = {}
         self._silent_list_pending = 0
@@ -631,6 +636,11 @@ class RRCHub:
         except Exception: return True
         return v
 
+    def _ephemeral_notices_history(self):
+        try: v = getattr(self.manager.app, "rrc_ephemeral_notices", self.SYS_NOTICE_TIMEOUT)
+        except Exception: return self.SYS_NOTICE_TIMEOUT
+        return v
+
     def _entry_for(self, msg):
         return {
             H_KIND:    msg.kind,
@@ -723,6 +733,32 @@ class RRCHub:
             with self._lock:
                 self.messages[room] = msgs
 
+    def _clean_history(self):
+        now = time.time()
+        cleaned = False
+        remove_after = self._ephemeral_notices_history()
+        if now > self._last_history_clean + self.CLEAN_HISTORY_INTERVAL:
+            RNS.log(f"Cleaning loaded message history", RNS.LOG_DEBUG) 
+            with self._lock:
+                try:
+                    for r in self.messages:
+                        old = set()
+                        for m in self.messages[r]:
+                            age = now-m.ts/1000.0
+                            should_filter = False
+                            if   m.kind == "system": should_filter = True
+                            elif m.kind == "notice": should_filter = True
+                            if should_filter and age > remove_after: old.add(m)
+
+                        for m in old:
+                            self.messages[r].remove(m)
+                            cleaned = True
+
+                except Exception as e: RNS.trace_exception(e)
+
+        self._last_history_clean = time.time()
+        if cleaned: self.clean_last_removed = time.time()
+
     def _record_message(self, msg, local=False):
         cap = self._per_room_cap()
         with self._lock:
@@ -736,6 +772,7 @@ class RRCHub:
                     if msg.mention:
                         self.mention_rooms.add(msg.room)
         self._append_history(msg.room, msg)
+        self._clean_history()
         self.manager._notify_messages(self, msg)
 
     def _record_system(self, room, text):
@@ -749,6 +786,7 @@ class RRCHub:
             if cap is not None and len(buf) > cap:
                 del buf[:len(buf)-cap]
         self._append_history(room, msg)
+        self._clean_history()
         self.manager._notify_messages(self, msg)
 
     def _record_notice(self, msg):
@@ -772,6 +810,7 @@ class RRCHub:
                     self.unread_rooms.add(target_room)
         if target_room:
             self._append_history(target_room, msg)
+            self._clean_history()
         self.manager._notify_messages(self, msg)
 
     def get_messages(self, room):
