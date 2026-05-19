@@ -60,7 +60,11 @@ def default_state(fg=None, bg=None):
     }
     return state
 
-def markup_to_attrmaps(markup, url_delegate = None, fg_color=None, bg_color=None):
+def markup_to_attrmaps(markup, url_delegate = None, fg_color=None, bg_color=None, link_class=None):
+    global LINK_CLASS
+    if link_class: LINK_CLASS = link_class
+    else: LINK_CLASS = LinkableText
+
     global SELECTED_STYLES
     if nomadnet.NomadNetworkApp.get_shared_instance().config["textui"]["theme"] == nomadnet.ui.TextUI.THEME_DARK:
         SELECTED_STYLES = STYLES_DARK
@@ -290,7 +294,7 @@ def parse_line(line, state, url_delegate):
                 for o in output:
                     if isinstance(o, tuple):
                         if url_delegate != None:
-                            tw = LinkableText(o, align=state["align"], delegate=url_delegate)
+                            tw = LINK_CLASS(o, align=state["align"], delegate=url_delegate)
                             tw.in_columns = True
                         else:
                             tw = urwid.Text(o, align=state["align"])
@@ -343,7 +347,7 @@ def parse_line(line, state, url_delegate):
 
             else:
                 if url_delegate != None:
-                    text_widget = LinkableText(output, align=state["align"], delegate=url_delegate)
+                    text_widget = LINK_CLASS(output, align=state["align"], delegate=url_delegate)
                 else:
                     text_widget = urwid.Text(output, align=state["align"])
 
@@ -974,3 +978,5 @@ class LinkableText(urwid.Text):
             
         except Exception as e:
             return False
+
+LINK_CLASS = LinkableText

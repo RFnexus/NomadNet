@@ -10,6 +10,27 @@ import nomadnet
 from nomadnet.RRC import RRCHub
 from nomadnet.vendor.additional_urwid_widgets import IndicativeListBox
 from nomadnet.ui.textui.MicronParser import LinkableText, LinkSpec
+from .MicronParser import markup_to_attrmaps
+from nomadnet.util import strip_modifiers
+
+
+theme_dark  = { "ts": "888",
+                "nick_self": "6c5",
+                "nick_peer": "3cd",
+                "notice":    "fd3",
+                "error":     "f55",
+                "system":    "888",
+                "mention":   "fb4",
+                "link":      "79d", }
+
+theme_light = { "ts": "888",
+                "nick_self": "3a0",
+                "nick_peer": "077",
+                "notice":    "a70",
+                "error":     "a22",
+                "system":    "888",
+                "mention":   "c50",
+                "link":      "79d", }
 
 
 class _ChatLinkableText(LinkableText):
@@ -95,7 +116,7 @@ def _scan_mentions(text, own_nick):
         yield m.start(), m.end(), "mention", None
 
 
-def _body_markup(body, body_attr="body_text", own_nick=None):
+def _body_markup(body, body_attr="body_text", own_nick=None, check_links=True):
     spans = list(_scan_links(body))
     spans.extend(_scan_mentions(body, own_nick))
     spans.sort(key=lambda s: s[0])
@@ -120,8 +141,12 @@ def _body_markup(body, body_attr="body_text", own_nick=None):
             out.append(("irc_mention", body[start:end]))
         else:
             base = _LINK_ATTRS[kind]
-            out.append((LinkSpec(kind+":"+target, base, cm=256), body[start:end]))
-            has_links = True
+            if check_links:
+                out.append((LinkSpec(kind+":"+target, base, cm=256), body[start:end]))
+                has_links = True
+            else:
+                out.append((f"link_{kind}", body[start:end]))
+                has_links = True
         pos = end
     if pos < len(body):
         out.append((body_attr, body[pos:]))
@@ -786,6 +811,10 @@ def _ts_prefix(ts_ms):
     t = _format_ts(ts_ms) if ts_ms else "        "
     return ("irc_ts", " ["+t+"] ")
 
+def _ts_prefix_raw(ts_ms):
+    t = _format_ts(ts_ms) if ts_ms else "        "
+    return "["+t+"] "
+
 
 class _ChatLinkDelegate:
     def __init__(self, display, hub):
@@ -801,18 +830,23 @@ class _ChatLinkDelegate:
         pass
 
     def handle_link(self, target, fields=None):
-        if target is None:
-            return
-        kind, _, payload = target.partition(":")
+        if target is None: return
         try:
-            if kind == "room":
-                self._open_room(payload)
-            elif kind == "lxmf":
-                self._open_lxmf(payload)
+            components = target.split("://")
+            if len(components) < 2: return
+            kind = components[0]
+            payload = components[1]
+            if kind == "room": self._open_room(payload.lstrip("#"))
+            elif kind == "lxmf": self._open_lxmf(payload.lstrip("lxmf@"))
             elif kind == "page":
-                self._open_page(payload)
-        except Exception as e:
-            RNS.log("Chat link handler failed: "+str(e), RNS.LOG_ERROR)
+                final_url = payload
+                if fields:
+                    final_url += "`"
+                    for f in fields: final_url += f"{f}|"
+                    final_url.rstrip("|")
+                self._open_page(final_url)
+            else: RNS.log(f"Invalid URL: {target}", RNS.LOG_WARNING)
+        except Exception as e: RNS.log("Chat link handler failed: "+str(e), RNS.LOG_ERROR)
 
     def _open_room(self, room):
         room = (room or "").strip().lower()
@@ -863,8 +897,8 @@ class _ChatLinkDelegate:
         except Exception as e:
             RNS.log("Could not open page link: "+str(e), RNS.LOG_ERROR)
 
-
 def _message_widget(app, hub, m, link_delegate=None):
+    t = theme_dark if app.config["textui"]["theme"] == nomadnet.ui.TextUI.THEME_DARK else theme_light
     g = app.ui.glyphs
     own_nick = None
     try:
@@ -913,12 +947,38 @@ def _message_widget(app, hub, m, link_delegate=None):
 
     nick_attr = "irc_nick_self" if own else "irc_nick_peer"
     body = m.text or ""
-    spans, has_links = _body_markup(body, body_attr="body_text", own_nick=None if own else own_nick)
-    markup = [_ts_prefix(m.ts), (nick_attr, "<"+sender+">"), ("body_text", " ")] + spans
-    final_widget = _wrap_text(markup, link_delegate if has_links else None)
+    spans, has_links = _body_markup(body, body_attr="body_text", own_nick=None if own else own_nick, check_links=False)
+    ld = link_delegate if has_links else None
+
+    message_body = ""
+    for span in spans:
+        ms = span[0]
+        mb = span[1]
+        if ms.startswith("irc_mention"): message_body += f"`!`F{t['mention']}{mb}`f`!"
+        elif ms.startswith("link_"):
+            kind = ms[len("link_"):]
+            label = mb.split("`")[0]
+            url = f"{kind}://{mb}"
+            link_mu = f"`_`F{t['link']}`[{label}`{url}]`f`_"
+            message_body += link_mu
+        else: message_body += mb
+
+    nick_attr = f"`F{t['nick_self']}" if own else f"`F{t['nick_peer']}"
+    irc_ts = f"`F{t['ts']}"
+
+    prefix_micron = f"{irc_ts}{_ts_prefix_raw(m.ts)}`f {nick_attr}<{sender}>`f "
+    
+    rendered = _render_body(f"{prefix_micron}{message_body}", link_delegate=ld)
+    final_widget = urwid.Padding(urwid.Pile(rendered), left=1)
+    
     final_widget.msg = m
     return final_widget
 
+def _render_body(markup, link_delegate=None):
+    try: return markup_to_attrmaps(strip_modifiers(markup), url_delegate=link_delegate, link_class=_ChatLinkableText)
+    except Exception as e:
+        RNS.trace_exception(e)
+        return []
 
 def _wrap_text(markup, link_delegate):
     if link_delegate is not None:
