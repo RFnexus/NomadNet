@@ -417,6 +417,7 @@ class ConversationMessage:
             self.timestamp = self.lxm.timestamp
             self.sort_timestamp = os.path.getmtime(self.file_path)
 
+
             if self.lxm.state > LXMF.LXMessage.GENERATING and self.lxm.state < LXMF.LXMessage.SENT:
                 found = False
 
@@ -596,6 +597,18 @@ class ConversationMessage:
                 return fields
 
         return {}
+
+    def content_renderer(self):
+        if not self.loaded: self.load()
+        RNS.log(self.lxm)
+        if self.lxm and hasattr(self.lxm, "get_fields"):
+            fields = self.lxm.get_fields()
+            RNS.log(f"has fields: {fields}")
+            if fields and isinstance(fields, dict):
+                if LXMF.FIELD_RENDERER in fields:
+                    return fields[LXMF.FIELD_RENDERER]
+
+        return None
 
     def has_attachments(self):
         if self._cached_has_attachments is not None:

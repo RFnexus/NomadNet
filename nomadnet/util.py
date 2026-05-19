@@ -141,3 +141,45 @@ def sanitize_name(name):
     name = name.strip()
     
     return name
+
+def strip_micron(text):
+    text = re.sub(r'`[FB][0-9a-fA-F]{3}', '', text)
+    text = re.sub(r'`[FB]T[0-9a-fA-F]{6}', '', text)
+    text = re.sub(r'`[!*_=]', '', text)
+    text = re.sub(r'`f`b', '', text)
+    text = re.sub(r'`f', '', text)
+    text = re.sub(r'`b', '', text)
+    text = re.sub(r'`<', '', text)
+    text = re.sub(r'`>', '', text)
+    text = re.sub(r'`{', '', text)
+    return text
+
+def strip_escaped_micron(text):
+    text = re.sub(r'¦[FB][0-9a-fA-F]{3}', '', text)
+    text = re.sub(r'¦[FB]T[0-9a-fA-F]{6}', '', text)
+    text = re.sub(r'¦[!*_=]', '', text)
+    text = re.sub(r'¦f`b', '', text)
+    text = re.sub(r'¦f', '', text)
+    text = re.sub(r'¦b', '', text)
+    text = re.sub(r'¦<', '', text)
+    text = re.sub(r'¦>', '', text)
+    text = re.sub(r'¦{', '', text)
+    return text
+
+def unescape_micron(text):
+    text = re.sub(r'¦([FB][0-9a-fA-F]{3})', r'`\1', text)
+    text = re.sub(r'¦([FB]T[0-9a-fA-F]{6})', r'`\1', text)
+    text = re.sub(r'¦([!*_=])', r'`\1', text)
+    text = re.sub(r'¦(f`b)', r'`\1', text)
+    text = re.sub(r'¦(f)', r'`\1', text)
+    text = re.sub(r'¦(b)', r'`\1', text)
+    text = re.sub(r'¦(<)', r'`\1', text)
+    text = re.sub(r'¦(>)', r'`\1', text)
+    text = re.sub(r'¦({)', r'`\1', text)
+    return text
+
+def strip_non_formatting_tags(text):
+    text = re.sub(r'`<', '', text)
+    text = re.sub(r'`>', '', text)
+    text = re.sub(r'`{', '', text)
+    return text

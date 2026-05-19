@@ -5,6 +5,7 @@ import os
 import platform
 
 import nomadnet
+from nomadnet.ui import THEME_DARK, THEME_LIGHT
 from nomadnet.ui.textui import *
 from nomadnet import NomadNetworkApp
 
@@ -13,8 +14,6 @@ COLORMODE_16   = 16
 COLORMODE_88   = 88
 COLORMODE_256  = 256
 COLORMODE_TRUE = 2**24
-THEME_DARK     = 0x01
-THEME_LIGHT    = 0x02
 
 THEMES = {
     THEME_DARK: {

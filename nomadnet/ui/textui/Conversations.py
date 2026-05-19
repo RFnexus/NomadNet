@@ -15,6 +15,11 @@ from nomadnet.Conversation import ConversationMessage
 from nomadnet.util import strip_modifiers
 from nomadnet.util import sanitize_name
 
+from RNS.Utilities.rngit.util import MarkdownToMicron
+from RNS.Utilities.rngit.highlight import SyntaxHighlighter
+from .MicronParser import markup_to_attrmaps
+from nomadnet.util import strip_modifiers, strip_micron, strip_escaped_micron, unescape_micron, strip_non_formatting_tags
+from nomadnet.ui import THEME_DARK, THEME_LIGHT
 
 def relative_time(timestamp):
     now = time.time()
@@ -1302,7 +1307,7 @@ class ConversationWidget(urwid.WidgetWrap):
             if not message_hash in added_hashes:
                 added_hashes.append(message_hash)
                 was_loaded = message.loaded
-                message_widget = LXMessageWidget(message)
+                message_widget = LXMessageWidget(message, theme=self.app.config["textui"]["theme"])
                 self.message_widgets.append(message_widget)
                 if not was_loaded and message.loaded:
                     needs_index.append(message)
@@ -1467,6 +1472,10 @@ class ConversationWidget(urwid.WidgetWrap):
                 if file_attachments:
                     fields = {LXMF.FIELD_FILE_ATTACHMENTS: file_attachments}
 
+            if self.app.compose_markdown:
+                if not fields: fields = {}
+                fields[LXMF.FIELD_RENDERER] = LXMF.RENDERER_MARKDOWN
+
             if self.conversation.send(content, title, fields=fields):
                 self.clear_editor()
 
@@ -1609,7 +1618,9 @@ class ConversationWidget(urwid.WidgetWrap):
 
 
 class LXMessageWidget(urwid.WidgetWrap):
-    def __init__(self, message):
+    mdc = MarkdownToMicron(max_width=80, syntax_highlighter=SyntaxHighlighter(), url_scope=None) 
+
+    def __init__(self, message, theme=THEME_DARK):
         app = nomadnet.NomadNetworkApp.get_shared_instance()
         g = app.ui.glyphs
         self.timestamp = message.get_timestamp()
@@ -1623,6 +1634,7 @@ class LXMessageWidget(urwid.WidgetWrap):
         msg_method = message._cached_method
         time_format = app.time_format
         message_time = datetime.fromtimestamp(self.timestamp)
+        renderer = message.content_renderer()
         encryption_string = ""
         if message.get_transport_encrypted():
             encryption_string = " "+g["encrypted"]
@@ -1685,7 +1697,16 @@ class LXMessageWidget(urwid.WidgetWrap):
 
         content_text = message.get_content()
         content_lines = content_text.split("\n")
-        indented = "\n".join("  "+line for line in content_lines)
+        markdown = renderer == LXMF.RENDERER_MARKDOWN
+
+        default_fg = "bbb" if theme == THEME_DARK else "444"
+        if markdown:
+            formatted = self.mdc.format_block(content_text)
+            message_body = strip_non_formatting_tags(formatted)
+            rendered = markup_to_attrmaps(strip_modifiers(message_body), url_delegate=None, fg_color=default_fg, bg_color=None)
+            content_pile = urwid.Padding(urwid.Pile(rendered), left=2, right=2)
+
+        else: indented = "\n".join("  "+line for line in content_lines)
 
         pile_widgets = [title]
 
@@ -1711,7 +1732,8 @@ class LXMessageWidget(urwid.WidgetWrap):
                 pile_widgets.append(self.progress_attr)
                 self._start_progress_poll()
 
-        pile_widgets.append(urwid.Text(indented))
+        if markdown: pile_widgets.append(content_pile)
+        else:        pile_widgets.append(urwid.Text(indented))
 
         if has_attachments and cached_names:
             att_file_idx = 0

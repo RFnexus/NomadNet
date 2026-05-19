@@ -771,6 +771,12 @@ The maximum accepted unpacked size for messages received directly from other pee
 With this option enabled, Nomad Network will only display one entry in the announce stream per destination. Older announces are culled when a new one arrives.
 <
 
+>>>
+`!compose_in_markdown = yes`!
+>>>>
+Configures whether sent messages are composed in markdown format.
+<
+
 >> RRC Section
 
 This section hold configuration directives related to the RRC client behaviour. It is delimited by the `![rrc]`! header in the configuration file. Available directives, along with their default values, are as follows:

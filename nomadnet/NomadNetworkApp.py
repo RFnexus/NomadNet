@@ -138,6 +138,7 @@ class NomadNetworkApp:
         self.try_propagation_on_fail = True
         self.disable_propagation     = True
         self.notify_on_new_message   = True
+        self.compose_markdown        = True
 
         self.lxmf_max_propagation_size = None
         self.lxmf_max_sync_size        = None
@@ -836,6 +837,10 @@ class NomadNetworkApp:
                     value = self.config["client"].as_bool(option)
                     self.notify_on_new_message = value
 
+                if option == "compose_in_markdown":
+                    value = self.config["client"].as_bool(option)
+                    self.compose_markdown = value
+
                 if option == "user_interface":
                     value = value.lower()
                     if value == "none":
@@ -1146,7 +1151,6 @@ downloads_path = ~/Downloads
 # Where to save received attachments. If not set,
 # attachments will be saved to the downloads path.
 # attachment_save_path = ~/Downloads
-
 notify_on_new_message = yes
 
 # By default, the peer is announced at startup
@@ -1209,6 +1213,10 @@ max_accepted_size = 500
 # change this to show as many announces as have
 # been received, for every destination.
 compact_announce_stream = yes
+
+# You can choose whether or not to compose
+# messages in markdown format.
+compose_in_markdown = yes
 
 [textui]
 

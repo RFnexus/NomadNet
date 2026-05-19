@@ -13,10 +13,11 @@ from nomadnet.ui.textui.MicronParser import LinkableText, LinkSpec
 from RNS.Utilities.rngit.util import MarkdownToMicron
 from RNS.Utilities.rngit.highlight import SyntaxHighlighter
 from .MicronParser import markup_to_attrmaps
-from nomadnet.util import strip_modifiers
+from nomadnet.util import strip_modifiers, strip_micron, strip_escaped_micron, unescape_micron, strip_non_formatting_tags
 
 
-theme_dark  = { "ts": "888",
+theme_dark  = { "text": "ddd",
+                "ts": "888",
                 "nick_self": "6c5",
                 "nick_peer": "3cd",
                 "notice":    "fd3",
@@ -25,7 +26,8 @@ theme_dark  = { "ts": "888",
                 "mention":   "fb4",
                 "link":      "79d", }
 
-theme_light = { "ts": "888",
+theme_light = { "text": "111",
+                "ts": "888",
                 "nick_self": "3a0",
                 "nick_peer": "077",
                 "notice":    "a70",
@@ -899,47 +901,6 @@ class _ChatLinkDelegate:
         except Exception as e:
             RNS.log("Could not open page link: "+str(e), RNS.LOG_ERROR)
 
-def strip_micron(text):
-    text = re.sub(r'`[FB][0-9a-fA-F]{3}', '', text)
-    text = re.sub(r'`[FB]T[0-9a-fA-F]{6}', '', text)
-    text = re.sub(r'`[!*_=]', '', text)
-    text = re.sub(r'`f`b', '', text)
-    text = re.sub(r'`f', '', text)
-    text = re.sub(r'`b', '', text)
-    text = re.sub(r'`<', '', text)
-    text = re.sub(r'`>', '', text)
-    text = re.sub(r'`{', '', text)
-    return text
-
-def strip_escaped_micron(text):
-    text = re.sub(r'¦[FB][0-9a-fA-F]{3}', '', text)
-    text = re.sub(r'¦[FB]T[0-9a-fA-F]{6}', '', text)
-    text = re.sub(r'¦[!*_=]', '', text)
-    text = re.sub(r'¦f`b', '', text)
-    text = re.sub(r'¦f', '', text)
-    text = re.sub(r'¦b', '', text)
-    text = re.sub(r'¦<', '', text)
-    text = re.sub(r'¦>', '', text)
-    text = re.sub(r'¦{', '', text)
-    return text
-
-def unescape_micron(text):
-    text = re.sub(r'¦([FB][0-9a-fA-F]{3})', r'`\1', text)
-    text = re.sub(r'¦([FB]T[0-9a-fA-F]{6})', r'`\1', text)
-    text = re.sub(r'¦([!*_=])', r'`\1', text)
-    text = re.sub(r'¦(f`b)', r'`\1', text)
-    text = re.sub(r'¦(f)', r'`\1', text)
-    text = re.sub(r'¦(b)', r'`\1', text)
-    text = re.sub(r'¦(<)', r'`\1', text)
-    text = re.sub(r'¦(>)', r'`\1', text)
-    text = re.sub(r'¦({)', r'`\1', text)
-    return text
-
-def strip_non_formatting_tags(text):
-    text = re.sub(r'`<', '', text)
-    text = re.sub(r'`>', '', text)
-    text = re.sub(r'`{', '', text)
-    return text
 
 mdc = MarkdownToMicron(max_width=80, syntax_highlighter=SyntaxHighlighter(), url_scope=None)
 def _message_widget(app, hub, m, link_delegate=None):
@@ -1023,22 +984,22 @@ def _message_widget(app, hub, m, link_delegate=None):
     prefix_micron = f"{irc_ts}{_ts_prefix_raw(m.ts)}"
     nick_micron = f"`f{nick_attr}<{sender}>`f "
     if app.rrc_ui_justify_msgs:
-        prefix_rendered = _render_body(f"{prefix_micron}")
-        body_rendered   = _render_body(f"{nick_micron}{message_body}")
+        prefix_rendered = _render_body(f"{prefix_micron}", fg=t["text"])
+        body_rendered   = _render_body(f"{nick_micron}{message_body}", fg=t["text"])
         if app.rrc_ui_space_msgs: body_rendered.append(urwid.Text(""))
         columns         = urwid.Columns([(urwid.PACK, urwid.Pile(prefix_rendered)), urwid.Pile(body_rendered)], dividechars=1)
         final_widget    = urwid.Padding(columns, left=1)
 
     else:
-        rendered = _render_body(f"{prefix_micron}{nick_micron}{message_body}", link_delegate=ld)
+        rendered = _render_body(f"{prefix_micron}{nick_micron}{message_body}", link_delegate=ld, fg=t["text"])
         if app.rrc_ui_space_msgs: rendered.append(urwid.Text(""))
         final_widget = urwid.Padding(urwid.Pile(rendered), left=1)
     
     final_widget.msg = m
     return final_widget
 
-def _render_body(markup, link_delegate=None):
-    try: return markup_to_attrmaps(strip_modifiers(markup), url_delegate=link_delegate, link_class=_ChatLinkableText)
+def _render_body(markup, link_delegate=None, fg="bbb"):
+    try: return markup_to_attrmaps(strip_modifiers(markup), url_delegate=link_delegate, link_class=_ChatLinkableText, fg_color=fg)
     except Exception as e:
         RNS.trace_exception(e)
         return []
