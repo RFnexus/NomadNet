@@ -600,10 +600,8 @@ class ConversationMessage:
 
     def content_renderer(self):
         if not self.loaded: self.load()
-        RNS.log(self.lxm)
         if self.lxm and hasattr(self.lxm, "get_fields"):
             fields = self.lxm.get_fields()
-            RNS.log(f"has fields: {fields}")
             if fields and isinstance(fields, dict):
                 if LXMF.FIELD_RENDERER in fields:
                     return fields[LXMF.FIELD_RENDERER]
