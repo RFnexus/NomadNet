@@ -13,7 +13,8 @@ from nomadnet.ui.textui.MicronParser import LinkableText, LinkSpec
 from RNS.Utilities.rngit.util import MarkdownToMicron
 from RNS.Utilities.rngit.highlight import SyntaxHighlighter
 from .MicronParser import markup_to_attrmaps
-from nomadnet.util import strip_modifiers, strip_micron, strip_escaped_micron, unescape_micron, strip_non_formatting_tags
+from nomadnet.util import sanitize_name, strip_modifiers, strip_micron
+from nomadnet.util import strip_escaped_micron, unescape_micron, strip_non_formatting_tags
 
 
 theme_dark  = { "text": "ddd",
@@ -24,7 +25,10 @@ theme_dark  = { "text": "ddd",
                 "error":     "f55",
                 "system":    "888",
                 "mention":   "fb4",
-                "link":      "79d", }
+                "link":      "79d",
+                # colorgen.py --hue-step 18 --sat-start 25 --sat-steps 2 --sat-step 100 --light-step 30 --normalize --normalize-target 2.5 --perceptual-multiplier 1.4 --discard 1,5,7,11,13,14,17,27,31,33,37,39,3,16,18,36
+                "nick_colors": ["f68787", "00c394", "d59e00", "62be00", "a1ac76", "95b600", "76a9ee", "81b385", "7eb1a1", "e89264", "7cb0b0", "00c0c0", "8cacbb", "32b4db", "98a8c3", "bbab00", "95a0fd", "a9a2ca", "ad98fe", "c58ffa", "df83f4", "c49abf", "f380c7", "f484a7"],
+               }
 
 theme_light = { "text": "111",
                 "ts": "888",
@@ -34,7 +38,10 @@ theme_light = { "text": "111",
                 "error":     "a22",
                 "system":    "888",
                 "mention":   "c50",
-                "link":      "79d", }
+                "link":      "79d",
+                # colorgen.py --hue-step 18 --sat-start 25 --sat-steps 2 --sat-step 100 --light-step 30 --normalize --normalize-target 2.5 --perceptual-multiplier 0.2 --discard 1,5,7,11,13,14,17,27,31,33,37,39,3,16,18,36 > ~/.nomadnetwork/storage/pages/index.mu
+                "nick_colors": ["ca0000", "008000", "9d1c00", "007800", "2c5200", "006800", "004ac0", "006100", "005d2c", "b70000", "005b5b", "007b7a", "005071", "0064a5", "004580", "714f00", "0026d3", "48318c", "5200d5", "8400cf", "aa00c8", "820079", "c60086", "c80043"],
+               }
 
 
 class _ChatLinkableText(LinkableText):
@@ -451,6 +458,7 @@ class RoomWidget(urwid.WidgetWrap):
 
         rows = [urwid.Text(" "+str(len(names))+" user"+("s" if len(names) != 1 else ""))]
         for name, is_self in names:
+            name = sanitize_name(name); name = name[:15]+"…" if len(name) > 16 else name
             if is_self:
                 rows.append(urwid.AttrMap(urwid.Text(" "+g["arrow_r"]+" "+name), "list_trusted"))
             else:
@@ -901,7 +909,14 @@ class _ChatLinkDelegate:
         except Exception as e:
             RNS.log("Could not open page link: "+str(e), RNS.LOG_ERROR)
 
+def get_nick_color(sender_hash, theme, shift=15):
+    if type(sender_hash) == str:
+        try: sender_hash = sender_hash.encode("utf-8")
+        except: pass
+    if not type(sender_hash) == bytes: return theme["nick_peer"]
+    return theme["nick_colors"][(int.from_bytes(sender_hash)+shift)%len(theme["nick_colors"])]
 
+room_nick_src_cache = {}
 mdc = MarkdownToMicron(max_width=80, syntax_highlighter=SyntaxHighlighter(), url_scope=None)
 def _message_widget(app, hub, m, link_delegate=None):
     t = theme_dark if app.config["textui"]["theme"] == nomadnet.ui.TextUI.THEME_DARK else theme_light
@@ -944,12 +959,12 @@ def _message_widget(app, hub, m, link_delegate=None):
     except Exception:
         pass
 
-    if m.nick:
-        sender = m.nick
-    elif isinstance(m.src, (bytes, bytearray)):
-        sender = _short_hash(m.src)
-    else:
-        sender = "?"
+    if m.nick:                                  sender = sanitize_name(m.nick)
+    elif isinstance(m.src, (bytes, bytearray)): sender = _short_hash(m.src)
+    else:                                       sender = "?"
+
+    if isinstance(m.src, (bytes, bytearray)):
+        room_nick_src_cache[m.nick] = m.src
 
     nick_attr = "irc_nick_self" if own else "irc_nick_peer"
     body = m.text or ""
@@ -960,7 +975,12 @@ def _message_widget(app, hub, m, link_delegate=None):
     for span in spans:
         ms = span[0]
         mb = span[1]
-        if ms.startswith("irc_mention"): message_body += f"`!`F{t['mention']}{mb}`f`!"
+        if ms.startswith("irc_mention"):
+            if not app.rrc_nick_colors: message_body += f"`!`F{t['mention']}{mb}`f`!"
+            else:
+                try: message_body += f"`!`FT{get_nick_color(room_nick_src_cache[m.nick], t)}{mb}`f`!"
+                except: message_body += f"`!`F{t['mention']}{mb}`f`!"
+
         elif ms.startswith("link_"):
             kind = ms[len("link_"):]
             label = mb.split("`")[0]
@@ -978,7 +998,8 @@ def _message_widget(app, hub, m, link_delegate=None):
                 mbo = mdc.format_block(strip_escaped_micron(mb)) if app.rrc_ui_render_markdown else strip_escaped_micron(mb)
                 message_body += strip_non_formatting_tags(mbo)
 
-    nick_attr = f"`F{t['nick_self']}" if own else f"`F{t['nick_peer']}"
+    if app.rrc_nick_colors: nick_attr = f"`FT{get_nick_color(m.src, t)}"
+    else:                   nick_attr = f"`F{t['nick_self']}" if own else f"`F{t['nick_peer']}"
     irc_ts = f"`F{t['ts']}"
 
     prefix_micron = f"{irc_ts}{_ts_prefix_raw(m.ts)}"

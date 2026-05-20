@@ -812,6 +812,12 @@ Whether or not to render micron formatting in messages. When using micron in mes
 <
 
 >>>
+`!nick_colors = yes`!
+>>>>
+Whether or not to render RRC nicks in distinct colors based on identity hash.
+<
+
+>>>
 `!justify_msgs = yes`!
 `!space_msgs = no`!
 >>>>

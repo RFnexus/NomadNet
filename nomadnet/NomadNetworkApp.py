@@ -156,6 +156,7 @@ class NomadNetworkApp:
         self.rrc_history_per_room_cap = 500
         self.rrc_filter_loaded_history = True
         self.rrc_ephemeral_notices = 600
+        self.rrc_nick_colors = True
         self.rrc_ui_justify_msgs = True
         self.rrc_ui_space_msgs = False
         self.rrc_ui_render_markdown = True
@@ -944,6 +945,11 @@ class NomadNetworkApp:
                     except Exception: value = False
                     self.rrc_ui_space_msgs = value
                 
+                if option == "nick_colors":
+                    try: value = self.config["rrc"].as_bool(option)
+                    except Exception: value = True
+                    self.rrc_nick_colors = value
+
                 if option == "render_markdown":
                     try: value = self.config["rrc"].as_bool(option)
                     except Exception: value = True
@@ -1296,6 +1302,7 @@ ephemeral_notices = 10
 # Other display and formatting options:
 render_markdown = yes
 render_micron = yes
+nick_colors = yes
 justify_msgs = yes
 space_msgs = no
 
