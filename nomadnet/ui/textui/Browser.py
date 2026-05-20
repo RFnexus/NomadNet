@@ -253,6 +253,11 @@ class Browser:
             recurse_down(self.attr_maps)
             RNS.log("Including request data: "+str(request_data), RNS.LOG_DEBUG)
 
+        # In-document anchor link (#name or empty #)
+        if link_target.startswith("#"):
+            self._jump_to_anchor(link_target[1:])
+            return
+
         # rrc://<hex>[:<dest_name>]/<room> URL form
         if link_target.startswith("rrc://"):
             self.handle_rrc_link(link_target[6:])
@@ -299,6 +304,56 @@ class Browser:
             RNS.log("No known handler for destination type "+str(destination_type), RNS.LOG_DEBUG)
             self.browser_footer = urwid.Text("Could not open link: "+"No known handler for destination type "+str(destination_type))
             self.frame.contents["footer"] = (self.browser_footer, self.frame.options())
+
+    def _jump_to_anchor(self, name):
+        anchors     = getattr(self.attr_maps, "anchors", None) or {}
+        header_rows = getattr(self.attr_maps, "header_rows", None) or []
+
+        cols = self._content_cols()
+
+        target_idx = None
+        if name:
+            target_idx = anchors.get(name)
+            if target_idx is None:
+                self.browser_footer = urwid.Text("Unknown anchor: #"+name)
+                self.frame.contents["footer"] = (self.browser_footer, self.frame.options())
+                return
+        else:
+            current = 0
+            try:
+                current = self.browser_body.original_widget.original_widget.get_scrollpos()
+            except Exception:
+                current = 0
+            for hr in header_rows:
+                if self._rows_above(hr, cols) > current:
+                    target_idx = hr
+                    break
+            if target_idx is None:
+                return
+
+        try:
+            scrollable = self.browser_body.original_widget.original_widget
+            scrollable.set_scrollpos(self._rows_above(int(target_idx), cols))
+        except Exception as e:
+            RNS.log("Anchor jump failed: "+str(e), RNS.LOG_ERROR)
+
+    def _content_cols(self):
+        try:
+            cols = self.app.ui.loop.screen.get_cols_rows()[0]
+        except Exception:
+            cols = 100
+        return max(40, cols - 3)
+
+    def _rows_above(self, index, cols):
+        if index <= 0 or not self.attr_maps:
+            return 0
+        total = 0
+        for i in range(min(index, len(self.attr_maps))):
+            try:
+                total += self.attr_maps[i].rows((cols,))
+            except Exception:
+                total += 1
+        return total
 
     def handle_lxmf_link(self, link_target):
         try:

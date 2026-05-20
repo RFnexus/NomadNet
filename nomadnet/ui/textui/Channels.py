@@ -13,7 +13,8 @@ from nomadnet.ui.textui.MicronParser import LinkableText, LinkSpec
 from RNS.Utilities.rngit.util import MarkdownToMicron
 from RNS.Utilities.rngit.highlight import SyntaxHighlighter
 from .MicronParser import markup_to_attrmaps
-from nomadnet.util import strip_modifiers
+from nomadnet.util import strip_modifiers, sanitize_name
+from nomadnet.vendor.Scrollable import Scrollable, ScrollBar
 
 
 theme_dark  = { "ts": "888",
@@ -171,13 +172,13 @@ def _format_ts(ts_ms):
 class ChannelsListShortcuts():
     def __init__(self, app):
         self.app = app
-        self.widget = urwid.AttrMap(urwid.Text("[C-n] New Hub  [C-a] Add Room  [C-r] Connect  [C-w] Disconnect  [C-t] Auto-reconnect  [C-e] Edit Hub  [C-x] Remove"), "shortcutbar")
+        self.widget = urwid.AttrMap(urwid.Text("[C-n] New Hub  [C-a] Add Room  [C-r] Connect  [C-w] Disconnect  [C-t] Auto-reconnect  [C-e] Edit Hub  [C-x] Remove  [C-y] Toggle Channels"), "shortcutbar")
 
 
 class ChannelsRoomShortcuts():
     def __init__(self, app):
         self.app = app
-        self.widget = urwid.AttrMap(urwid.Text("[C-d] Send  [C-l] Leave Room  [C-k] Clear Editor  [C-u] Toggle Users  [Tab] Switch Focus"), "shortcutbar")
+        self.widget = urwid.AttrMap(urwid.Text("[C-d] Send  [C-l] Leave  [C-k] Clear  [C-u] Users  [C-y] Channels  [F8] Collapse Joins  [Tab] Focus"), "shortcutbar")
 
 
 class ChannelsDialogLineBox(urwid.LineBox):
@@ -205,7 +206,101 @@ class ChannelListEntry(urwid.Text):
         return True
 
 
+class ChannelsExpandGutter(urwid.WidgetWrap):
+    def __init__(self, app, delegate):
+        self.app = app
+        self.delegate = delegate
+        glyph = app.ui.glyphs.get("arrow_r", ">")
+        if len(glyph) > 1:
+            glyph = ">"
+        self._inner = urwid.SolidFill(glyph)
+        super().__init__(urwid.AttrMap(self._inner, "shortcutbar", "list_focus"))
+
+    def mouse_event(self, size, event, button, col, row, focus):
+        if button == 1 and urwid.util.is_mouse_press(event):
+            try:
+                self.delegate.toggle_channel_list()
+                return True
+            except Exception:
+                pass
+        return False
+
+    def selectable(self):
+        return False
+
+
+class UsersExpandGutter(urwid.WidgetWrap):
+    def __init__(self, app, delegate):
+        self.app = app
+        self.delegate = delegate
+        glyph = app.ui.glyphs.get("arrow_l", "<")
+        if len(glyph) > 1:
+            glyph = "<"
+        self._inner = urwid.SolidFill(glyph)
+        super().__init__(urwid.AttrMap(self._inner, "shortcutbar", "list_focus"))
+
+    def mouse_event(self, size, event, button, col, row, focus):
+        if button == 1 and urwid.util.is_mouse_press(event):
+            try:
+                self.delegate.toggle_users()
+                return True
+            except Exception:
+                pass
+        return False
+
+    def selectable(self):
+        return False
+
+
+class UsersBox(urwid.LineBox):
+    def mouse_event(self, size, event, button, col, row, focus):
+        if button == 1 and urwid.util.is_mouse_press(event) and row == 0:
+            try:
+                self.delegate.toggle_users()
+                return True
+            except Exception:
+                pass
+        return super().mouse_event(size, event, button, col, row, focus)
+
+    def keypress(self, size, key):
+        if key == "tab":
+            rw = getattr(self, "delegate", None)
+            if rw is not None:
+                try:
+                    rw.columns.focus_position = 0
+                    rw.frame.focus_position = "footer"
+                    return None
+                except Exception:
+                    pass
+        if key == "ctrl u":
+            rw = getattr(self, "delegate", None)
+            if rw is not None:
+                try:
+                    rw.toggle_users()
+                    return None
+                except Exception:
+                    pass
+        if key == "ctrl y":
+            rw = getattr(self, "delegate", None)
+            if rw is not None:
+                try:
+                    rw.display.toggle_channel_list()
+                    return None
+                except Exception:
+                    pass
+        return super().keypress(size, key)
+
+
 class ChannelsListArea(urwid.LineBox):
+    def mouse_event(self, size, event, button, col, row, focus):
+        if button == 1 and urwid.util.is_mouse_press(event) and row == 0:
+            try:
+                self.delegate.toggle_channel_list()
+                return True
+            except Exception:
+                pass
+        return super().mouse_event(size, event, button, col, row, focus)
+
     def keypress(self, size, key):
         if key == "ctrl n":
             self.delegate.new_hub_dialog()
@@ -221,6 +316,12 @@ class ChannelsListArea(urwid.LineBox):
             self.delegate.edit_hub_dialog()
         elif key == "ctrl x":
             self.delegate.remove_selected_dialog()
+        elif key == "ctrl y":
+            self.delegate.toggle_channel_list()
+            return None
+        elif key == "f8":
+            self.delegate.toggle_join_part_collapse()
+            return None
         elif key == "tab":
             self.delegate.app.ui.main_display.frame.focus_position = "header"
         elif key == "up" and (self.delegate.ilb.first_item_is_selected() or self.delegate.ilb.body_is_empty()):
@@ -252,6 +353,12 @@ class HubInfoArea(urwid.LineBox):
         if key == "ctrl x":
             self.delegate.remove_selected_dialog()
             return None
+        if key == "ctrl y":
+            self.delegate.toggle_channel_list()
+            return None
+        if key == "f8":
+            self.delegate.toggle_join_part_collapse()
+            return None
         return super(HubInfoArea, self).keypress(size, key)
 
 
@@ -274,6 +381,10 @@ class RoomMessageEdit(urwid.Edit):
             self.delegate.leave_room()
         elif key == "ctrl u":
             self.delegate.toggle_users()
+        elif key == "ctrl y":
+            self.delegate.display.toggle_channel_list()
+        elif key == "f8":
+            self.delegate.display.toggle_join_part_collapse()
         elif key == "up":
             y = self.get_cursor_coords(size)[1]
             if y == 0:
@@ -358,11 +469,31 @@ class RoomFrame(urwid.Frame):
         if key == "ctrl u":
             self.delegate.toggle_users()
             return None
+        if key == "ctrl y":
+            self.delegate.display.toggle_channel_list()
+            return None
+        if key == "f8":
+            self.delegate.display.toggle_join_part_collapse()
+            return None
         if key == "tab":
+            rw = self.delegate
+            users_focusable = (
+                rw is not None
+                and getattr(rw, "users_visible", False)
+                and len(rw.columns.contents) > 1
+                and rw.columns.contents[1][0] is rw.users_box
+            )
             if self.focus_position == "body":
                 self.focus_position = "footer"
+            elif users_focusable:
+                try:
+                    rw.columns.focus_position = 1
+                    return None
+                except Exception:
+                    self.focus_position = "body"
             else:
                 self.focus_position = "body"
+            return None
         elif self.focus_position == "body":
             if key == "down" and getattr(self.delegate, "messagelist", None) is not None and self.delegate.messagelist.bottom_is_visible:
                 self.focus_position = "footer"
@@ -406,8 +537,11 @@ class RoomWidget(urwid.WidgetWrap):
         self.frame.delegate = self
 
         self.chat_box = urwid.LineBox(self.frame)
-        self.users_pile = urwid.Pile([urwid.Text("")])
-        self.users_box = urwid.LineBox(urwid.Filler(self.users_pile, "top"), title="Users")
+        self.users_walker = urwid.SimpleFocusListWalker([urwid.Text("")])
+        self.users_listbox = urwid.ListBox(self.users_walker)
+        self.users_box = UsersBox(self.users_listbox, title="Users")
+        self.users_box.delegate = self
+        self.users_gutter = UsersExpandGutter(self.app, self)
         self._refresh_users_pane()
 
         self.users_visible = self.display.users_visible
@@ -428,34 +562,73 @@ class RoomWidget(urwid.WidgetWrap):
             ]
         else:
             self.columns.contents = [
-                (self.chat_box, self.columns.options(urwid.WEIGHT, 1)),
+                (self.chat_box,     self.columns.options(urwid.WEIGHT, 1)),
+                (self.users_gutter, self.columns.options(urwid.GIVEN, 1)),
             ]
         self.columns.focus_position = 0
 
     def _refresh_users_pane(self):
         g = self.app.ui.glyphs
+        walker = self.users_walker
         if self.hub is None or self.room is None:
-            self.users_pile.contents = [(urwid.Text(""), self.users_pile.options())]
+            walker[:] = [urwid.Text("")]
             return
         members = self.hub.get_members(self.room)
         own_hash = self.app.identity.hash if self.app.identity is not None else None
-        names = []
-        for m in members:
-            if own_hash is not None and m == own_hash:
-                names.append((self.hub.display_name_for(m), True))
-            else:
-                names.append((self.hub.display_name_for(m), False))
-        names.sort(key=lambda x: x[0].lower())
+        def _safe_name(raw):
+            if not raw: return ""
+            try:
+                if self.app.config["textui"]["sanitize_names"]:
+                    return sanitize_name(str(raw)) or ""
+                return strip_modifiers(str(raw)) or ""
+            except Exception:
+                return str(raw or "")
 
-        rows = [urwid.Text(" "+str(len(names))+" user"+("s" if len(names) != 1 else ""))]
-        for name, is_self in names:
+        entries = []
+        for m in members:
+            entries.append((_safe_name(self.hub.display_name_for(m)), m, own_hash is not None and m == own_hash))
+        entries.sort(key=lambda x: x[0].lower())
+
+        prev_focus_key = None
+        try:
+            prev_idx = walker.focus
+            if prev_idx is not None and 0 <= prev_idx < len(walker):
+                prev_focus_key = getattr(walker[prev_idx], "user_hash", None)
+        except Exception:
+            prev_focus_key = None
+
+        rows = [urwid.Text(" "+str(len(entries))+" user"+("s" if len(entries) != 1 else ""))]
+        for name, peer_hash, is_self in entries:
             if is_self:
-                rows.append(urwid.AttrMap(urwid.Text(" "+g["arrow_r"]+" "+name), "list_trusted"))
+                label = " "+g["arrow_r"]+" "+name
+                style = "list_trusted"
             else:
-                rows.append(urwid.AttrMap(urwid.Text(" "+g["peer"]+" "+name), "connected_status"))
-        if not names:
+                label = " "+g["peer"]+" "+name
+                style = "connected_status"
+            entry = ChannelListEntry(label)
+            urwid.connect_signal(entry, "click", self.display.show_user_info, (self.hub, peer_hash, name))
+            row = urwid.AttrMap(entry, style, "list_focus")
+            row.user_hash = peer_hash
+            rows.append(row)
+        if not entries:
             rows.append(urwid.Text(" (no members)"))
-        self.users_pile.contents = [(w, self.users_pile.options()) for w in rows]
+
+        walker[:] = rows
+
+        new_focus = None
+        if prev_focus_key is not None:
+            for idx, w in enumerate(walker):
+                if getattr(w, "user_hash", None) == prev_focus_key:
+                    new_focus = idx
+                    break
+        if new_focus is None:
+            for idx, w in enumerate(walker):
+                if hasattr(w, "user_hash"):
+                    new_focus = idx
+                    break
+        if new_focus is not None:
+            try: walker.set_focus(new_focus)
+            except Exception: pass
 
     def _update_peer_info(self):
         if self.hub is None or self.room is None:
@@ -481,8 +654,22 @@ class RoomWidget(urwid.WidgetWrap):
     def update_messages(self, replace=False):
         msgs = self.hub.get_messages(self.room) if (self.hub is not None and self.room is not None) else []
         widgets = []
+        collapse = getattr(self.display, "collapse_join_part", False)
+        run = []
+
+        def flush_run():
+            if not run:
+                return
+            widgets.append(_collapsed_joinpart_widget(self.app, len(run)))
+            run.clear()
+
         for m in msgs:
+            if collapse and _is_joinpart_system(m):
+                run.append(m)
+                continue
+            flush_run()
             widgets.append(_message_widget(self.app, self.hub, m, link_delegate=self.link_delegate))
+        flush_run()
 
         if not widgets:
             widgets = [urwid.Text([("irc_system", " "+self.app.ui.glyphs["info"]+"  No messages yet")])]
@@ -498,7 +685,7 @@ class RoomWidget(urwid.WidgetWrap):
             pass
         if replace and hasattr(self, "frame"):
             self.frame.contents["body"] = (self.messagelist, None)
-        if hasattr(self, "users_pile"):
+        if hasattr(self, "users_walker"):
             self._refresh_users_pane()
 
     def append_message(self, msg):
@@ -549,7 +736,7 @@ class RoomWidget(urwid.WidgetWrap):
         except Exception as e:
             RNS.log("Incremental append failed, falling back: "+str(e), RNS.LOG_DEBUG)
             self.update_messages(replace=True)
-        if hasattr(self, "users_pile"):
+        if hasattr(self, "users_walker"):
             self._refresh_users_pane()
 
     def _on_editor_change(self, editor, old_text):
@@ -942,6 +1129,32 @@ def strip_non_formatting_tags(text):
     return text
 
 mdc = MarkdownToMicron(max_width=80, syntax_highlighter=SyntaxHighlighter(), url_scope=None)
+
+_MOTD_ROOM_RE = re.compile(r"(?<!\[)(?<!\w)#([A-Za-z0-9][A-Za-z0-9_\-]{0,62})")
+
+def _linkify_motd(text):
+    if not text:
+        return text or ""
+    def repl(m):
+        name = m.group(1)
+        return "`["+m.group(0)+"`room://"+name+"]"
+    return _MOTD_ROOM_RE.sub(repl, text)
+
+
+def _is_joinpart_system(m):
+    if getattr(m, "kind", None) != "system":
+        return False
+    text = (getattr(m, "text", "") or "").strip()
+    if not text:
+        return False
+    if text.startswith("You "):
+        return False
+    return text.endswith(" joined") or text.endswith(" left")
+
+def _collapsed_joinpart_widget(app, n):
+    label = "  ⋯  "+str(n)+" join/leave event"+("" if n == 1 else "s")+"  ⋯"
+    return urwid.Padding(urwid.AttrMap(urwid.Text(label, align=urwid.CENTER), "irc_system"), left=1)
+
 def _message_widget(app, hub, m, link_delegate=None):
     t = theme_dark if app.config["textui"]["theme"] == nomadnet.ui.TextUI.THEME_DARK else theme_light
     g = app.ui.glyphs
@@ -1060,8 +1273,11 @@ class ChannelsDisplay():
         self.selected_key = None
         self.current_room_widget = None
         self.users_visible = True
+        self.channel_list_visible = True
+        self.collapse_join_part = False
 
         self._build_listbox()
+        self.gutter = ChannelsExpandGutter(self.app, self)
 
         self.list_shortcuts = ChannelsListShortcuts(self.app)
         self.room_shortcuts = ChannelsRoomShortcuts(self.app)
@@ -1091,6 +1307,44 @@ class ChannelsDisplay():
         self.app.rrc.set_change_callback(self._on_rrc_change)
         self.app.rrc.set_message_callback(self._on_rrc_message)
 
+    def _set_right_widget(self, widget):
+        self.right = widget
+        self._apply_channel_list_visibility(focus_right=True)
+
+    def toggle_channel_list(self):
+        if self.channel_list_visible and self.right is self.placeholder:
+            return
+        self.channel_list_visible = not self.channel_list_visible
+        self._apply_channel_list_visibility()
+
+    def toggle_join_part_collapse(self):
+        self.collapse_join_part = not self.collapse_join_part
+        if self.current_room_widget is not None:
+            try:
+                self.current_room_widget.update_messages(replace=True)
+            except Exception:
+                pass
+
+    def _apply_channel_list_visibility(self, focus_right=False):
+        list_opts   = self.columns_widget.options(urwid.GIVEN, ChannelsDisplay.given_list_width)
+        gutter_opts = self.columns_widget.options(urwid.GIVEN, 1)
+        right_opts  = self.columns_widget.options(urwid.WEIGHT, 1)
+        if self.channel_list_visible:
+            self.columns_widget.contents = [
+                (self.listbox, list_opts),
+                (self.right,   right_opts),
+            ]
+            if focus_right:
+                try: self.columns_widget.focus_position = 1
+                except Exception: pass
+        else:
+            self.columns_widget.contents = [
+                (self.gutter, gutter_opts),
+                (self.right,  right_opts),
+            ]
+            try: self.columns_widget.focus_position = 1
+            except Exception: pass
+
     def start(self):
         self.update_list()
 
@@ -1099,7 +1353,7 @@ class ChannelsDisplay():
             focus_path = self.columns_widget.get_focus_path()
         except Exception:
             focus_path = None
-        if focus_path and focus_path[0] == 1:
+        if focus_path and focus_path[0] == 1 and self.current_room_widget is not None:
             return self.room_shortcuts
         return self.list_shortcuts
 
@@ -1191,8 +1445,8 @@ class ChannelsDisplay():
         self.listbox = ChannelsListArea(urwid.Filler(self.ilb, height=urwid.RELATIVE_100), title="Channels")
         self.listbox.delegate = self
 
-        options = self.columns_widget.options(urwid.GIVEN, ChannelsDisplay.given_list_width)
-        if not self.dialog_open:
+        if not self.dialog_open and self.channel_list_visible:
+            options = self.columns_widget.options(urwid.GIVEN, ChannelsDisplay.given_list_width)
             self.columns_widget.contents[0] = (self.listbox, options)
 
         if prev_key is not None:
@@ -1307,6 +1561,17 @@ class ChannelsDisplay():
         else:
             lines.append(urwid.Text("  Use Ctrl-R to connect."))
 
+        if hub.motd:
+            lines.append(urwid.Divider(g["divider1"]))
+            lines.append(urwid.Text("  MOTD:"))
+            motd_delegate = _ChatLinkDelegate(self, hub)
+            try:
+                motd_widgets = markup_to_attrmaps(_linkify_motd(hub.motd), url_delegate=motd_delegate)
+            except Exception:
+                motd_widgets = [urwid.Text(hub.motd)]
+            for w in motd_widgets:
+                lines.append(urwid.Padding(w, left=2))
+
         if hub.rooms:
             lines.append(urwid.Divider(g["divider1"]))
             lines.append(urwid.Text("  Joined rooms:"))
@@ -1330,28 +1595,26 @@ class ChannelsDisplay():
                 urwid.connect_signal(entry, "click", self._select_room, (hub, name))
                 lines.append(urwid.AttrMap(entry, "list_unknown", "list_focus"))
 
-        info = HubInfoArea(urwid.Filler(urwid.Pile(lines), "top"), title=hub.name)
+        body = ScrollBar(Scrollable(urwid.Pile(lines)), thumb_char="┃", trough_char=" ")
+        info = HubInfoArea(urwid.AttrMap(body, "scrollbar"), title=hub.name)
         info.delegate = self
         self.current_room_widget = None
-        options = self.columns_widget.options(urwid.WEIGHT, 1)
-        self.columns_widget.contents[1] = (info, options)
+        self._set_right_widget(info)
         self.shortcuts_display = self.list_shortcuts
         self.app.ui.main_display.update_active_shortcuts()
 
     def show_placeholder(self):
         self.current_room_widget = None
         self.selected_key = None
-        options = self.columns_widget.options(urwid.WEIGHT, 1)
-        self.columns_widget.contents[1] = (self.placeholder, options)
+        self._set_right_widget(self.placeholder)
         self.shortcuts_display = self.list_shortcuts
         self.app.ui.main_display.update_active_shortcuts()
 
     def _show_room(self, hub, room):
         widget = RoomWidget(self, hub, room)
         self.current_room_widget = widget
-        options = self.columns_widget.options(urwid.WEIGHT, 1)
-        self.columns_widget.contents[1] = (widget, options)
-        self.columns_widget.focus_position = 1
+        self._set_right_widget(widget)
+        self.columns_widget.focus_position = len(self.columns_widget.contents)-1
         self.shortcuts_display = self.room_shortcuts
         self.app.ui.main_display.update_active_shortcuts()
 
@@ -1624,6 +1887,87 @@ class ChannelsDisplay():
         dialog.delegate = self
         self._show_dialog_overlay(dialog)
 
+    def show_user_info(self, sender, payload):
+        try:
+            hub, peer_hash, display_name = payload
+        except Exception:
+            return
+        if not isinstance(peer_hash, (bytes, bytearray)):
+            return
+
+        peer_hash    = bytes(peer_hash)
+        identity_hex = RNS.hexrep(peer_hash, delimit=False)
+        own_hash     = self.app.identity.hash if self.app.identity is not None else None
+        is_self      = (own_hash is not None and peer_hash == own_hash)
+
+        lxmf_hex = None
+        try:
+            peer_identity = RNS.Identity.recall(peer_hash, from_identity_hash=True)
+            if peer_identity is not None:
+                lxmf_dest = RNS.Destination.hash_from_name_and_identity("lxmf.delivery", peer_identity)
+                lxmf_hex  = RNS.hexrep(lxmf_dest, delimit=False)
+        except Exception:
+            pass
+
+        def on_close(_b):
+            self.close_dialog()
+
+        def on_open(_b):
+            self.close_dialog()
+            if lxmf_hex is None:
+                return
+            try:
+                _ChatLinkDelegate(self, hub)._open_lxmf(lxmf_hex)
+            except Exception as e:
+                RNS.log("Could not open conversation: "+str(e), RNS.LOG_ERROR)
+
+        safe_name = ""
+        try:
+            if display_name:
+                if self.app.config["textui"]["sanitize_names"]:
+                    safe_name = sanitize_name(str(display_name)) or ""
+                else:
+                    safe_name = strip_modifiers(str(display_name)) or ""
+        except Exception:
+            safe_name = ""
+
+        lines = [
+            urwid.Text(""),
+            urwid.Text(" Nick     : "+safe_name),
+            urwid.Text(" Identity : "+identity_hex),
+        ]
+        if lxmf_hex:
+            lines.append(urwid.Text(" LXMF     : "+lxmf_hex))
+
+        if is_self:
+            lines.append(urwid.Text(""))
+            lines.append(urwid.Text(" (This is you)", align=urwid.CENTER))
+            lines.append(urwid.Text(""))
+            lines.append(urwid.Columns([
+                (urwid.WEIGHT, 1, urwid.Button("Close", on_press=on_close)),
+            ]))
+        else:
+            if lxmf_hex is None:
+                lines.append(urwid.Text(""))
+                lines.append(urwid.Text(" Identity not in local cache;", align=urwid.CENTER))
+                lines.append(urwid.Text(" conversation can't be opened until", align=urwid.CENTER))
+                lines.append(urwid.Text(" the peer announces.", align=urwid.CENTER))
+                lines.append(urwid.Text(""))
+                lines.append(urwid.Columns([
+                    (urwid.WEIGHT, 1, urwid.Button("Close", on_press=on_close)),
+                ]))
+            else:
+                lines.append(urwid.Text(""))
+                lines.append(urwid.Columns([
+                    (urwid.WEIGHT, 0.55, urwid.Button("Open Conversation", on_press=on_open)),
+                    (urwid.WEIGHT, 0.05, urwid.Text("")),
+                    (urwid.WEIGHT, 0.40, urwid.Button("Close", on_press=on_close)),
+                ]))
+
+        dialog = ChannelsDialogLineBox(urwid.Pile(lines), title="User Info")
+        dialog.delegate = self
+        self._show_dialog_overlay(dialog)
+
     def _show_dialog_overlay(self, dialog):
         self.dialog_open = True
         overlay = urwid.Overlay(
@@ -1673,6 +2017,14 @@ class ChannelsDisplay():
                     and self.current_room_widget.hub is hub):
                 try:
                     self.current_room_widget._refresh_users_pane()
+                except Exception:
+                    pass
+            elif (self.selected_key
+                    and self.selected_key[0] == "hub"
+                    and self.selected_key[1] == hub.hub_hash
+                    and self.selected_key[2] == hub.dest_name):
+                try:
+                    self._show_hub_info(hub)
                 except Exception:
                     pass
         self._wake(action)

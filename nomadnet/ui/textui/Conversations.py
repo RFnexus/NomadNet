@@ -1,4 +1,5 @@
 import RNS
+import RNS.vendor.umsgpack as msgpack
 import collections
 import os
 import shutil
@@ -10,6 +11,7 @@ import urwid
 
 from datetime import datetime, timedelta
 from nomadnet.Directory import DirectoryEntry
+from LXMF import pn_announce_data_is_valid, PN_META_NAME
 from nomadnet.Conversation import ConversationMessage
 
 from nomadnet.util import strip_modifiers
@@ -56,13 +58,18 @@ class ConversationListDisplayShortcuts():
     def __init__(self, app):
         self.app = app
 
-        self.widget = urwid.AttrMap(urwid.Text("[C-e] Peer Info  [C-x] Delete  [C-r] Sync  [C-n] New  [C-u] Ingest URI  [C-o] Sort  [C-g] Fullscreen"), "shortcutbar")
+        self.widget = urwid.AttrMap(urwid.Text("[C-e] Peer Info  [C-x] Delete  [C-r] Sync  [C-n] New  [C-u] Ingest URI  [C-o] Sort  [C-q] My LXMF  [C-g] Fullscreen"), "shortcutbar")
 
 class ConversationDisplayShortcuts():
     def __init__(self, app):
         self.app = app
 
         self.widget = urwid.AttrMap(urwid.Text("[C-d] Send  [C-p] Paper Msg  [C-t] Title  [C-a] Attach  [C-s] Save  [C-k] Clear  [C-w] Close  [C-u] Purge  [C-x] Clear History  [C-o] Sort"), "shortcutbar")
+
+class TabButton(urwid.Button):
+    button_left  = urwid.Text("[")
+    button_right = urwid.Text("]")
+
 
 class ConversationsArea(urwid.LineBox):
     def keypress(self, size, key):
@@ -80,12 +87,85 @@ class ConversationsArea(urwid.LineBox):
             self.delegate.toggle_fullscreen()
         elif key == "ctrl o":
             self.delegate.toggle_list_sort()
+        elif key == "ctrl q":
+            self.delegate.show_my_qr()
         elif key == "tab":
             self.delegate.app.ui.main_display.frame.focus_position = "header"
-        elif key == "up" and (self.delegate.ilb.first_item_is_selected() or self.delegate.ilb.body_is_empty()):
-            self.delegate.app.ui.main_display.frame.focus_position = "header"
+        elif key == "up":
+            if self.delegate.ilb.body_is_empty():
+                self.delegate.app.ui.main_display.frame.focus_position = "header"
+                return None
+            result = super(ConversationsArea, self).keypress(size, key)
+            if result == "up":
+                self.delegate.app.ui.main_display.frame.focus_position = "header"
+                return None
+            return result
         else:
             return super(ConversationsArea, self).keypress(size, key)
+
+class PropNodePicker(urwid.WidgetWrap):
+    def __init__(self, options, current_hash, on_change):
+        self._options = list(options)
+        self._current = current_hash
+        self._on_change = on_change
+        self._pile = urwid.Pile([])
+        super().__init__(self._pile)
+        self._show_collapsed()
+
+    def _label_for(self, h):
+        for ph, label in self._options:
+            if ph == h:
+                return label
+        if h is not None:
+            return "<"+RNS.hexrep(h, delimit=False)+">"
+        return "(select propagation node)"
+
+    def _show_collapsed(self):
+        btn = urwid.Button("▾  "+self._label_for(self._current))
+        urwid.connect_signal(btn, "click", self._on_expand_click)
+        self._pile.contents = [
+            (urwid.AttrMap(btn, None, focus_map="list_focus"), self._pile.options()),
+        ]
+
+    def _on_expand_click(self, _btn):
+        self._show_expanded()
+
+    def _on_back_click(self, _btn):
+        self._show_collapsed()
+
+    def _make_row_click(self, picked_hash):
+        def _click(_btn):
+            try:
+                self._current = picked_hash
+                self._on_change(picked_hash)
+            except Exception as e:
+                RNS.log("Propagation node change handler failed: "+str(e), RNS.LOG_ERROR)
+            self._show_collapsed()
+        return _click
+
+    def _show_expanded(self):
+        rows = []
+        for ph, label in self._options:
+            marker = "● " if ph == self._current else "○ "
+            row = urwid.Button(marker+label)
+            urwid.connect_signal(row, "click", self._make_row_click(ph))
+            rows.append(urwid.AttrMap(row, None, focus_map="list_focus"))
+
+        if not rows:
+            rows.append(urwid.Text(" (no propagation nodes seen yet)"))
+
+        list_height = min(10, max(3, len(rows)))
+        listbox = urwid.ListBox(urwid.SimpleFocusListWalker(rows))
+        boxed = urwid.BoxAdapter(listbox, list_height)
+
+        back = urwid.Button("◀  Back")
+        urwid.connect_signal(back, "click", self._on_back_click)
+
+        self._pile.contents = [
+            (urwid.AttrMap(back, None, focus_map="list_focus"), self._pile.options()),
+            (boxed, self._pile.options()),
+        ]
+
 
 class DialogLineBox(urwid.LineBox):
     def keypress(self, size, key):
@@ -106,17 +186,23 @@ class ConversationsDisplay():
     SORT_RECENT = 0
     SORT_NAME   = 1
 
+    LIST_FILTER_TRUSTED   = "trusted"
+    LIST_FILTER_UNTRUSTED = "untrusted"
+
     def __init__(self, app):
         self.app = app
         self.dialog_open = False
         self.sync_dialog = None
         self.currently_displayed_conversation = None
         self.list_sort_mode = ConversationsDisplay.SORT_RECENT
+        self.list_filter = ConversationsDisplay.LIST_FILTER_TRUSTED
+        self.show_blocked = False
 
         def disp_list_shortcuts(sender, arg1, arg2):
             self.shortcuts_display = self.list_shortcuts
             self.app.ui.main_display.update_active_shortcuts()
 
+        self._build_persistent_listbox()
         self.update_listbox()
 
         self.columns_widget = urwid.Columns(
@@ -133,7 +219,7 @@ class ConversationsDisplay():
         self.editor_shortcuts = ConversationDisplayShortcuts(self.app)
 
         self.shortcuts_display = self.list_shortcuts
-        self.widget = self.columns_widget
+        self.widget = urwid.WidgetPlaceholder(self.columns_widget)
 
         self._pending_actions = collections.deque()
         self._wake_fd = None
@@ -143,6 +229,11 @@ class ConversationsDisplay():
             pass
 
         nomadnet.Conversation.created_callback = lambda: self._wake(self.update_conversation_list)
+
+        try:
+            self.app.ui.loop.set_alarm_in(30.0, self._refresh_sync_status)
+        except Exception:
+            pass
 
     def _process_pending(self, data):
         while True:
@@ -180,25 +271,278 @@ class ConversationsDisplay():
             self.list_sort_mode = ConversationsDisplay.SORT_RECENT
         self.update_conversation_list()
 
-    def update_listbox(self):
-        conversations = self.app.conversations()
-        if self.list_sort_mode == ConversationsDisplay.SORT_NAME:
-            conversations.sort(key=lambda e: (e[3].lower(), e[0]))
+    def _conversation_filter_predicate(self, conversation):
+        try:
+            trust_level = conversation[2]
+        except Exception:
+            return False
+        if self.list_filter == ConversationsDisplay.LIST_FILTER_UNTRUSTED:
+            return trust_level in (DirectoryEntry.UNTRUSTED, DirectoryEntry.WARNING, DirectoryEntry.UNKNOWN)
+        return trust_level == DirectoryEntry.TRUSTED
 
-        conversation_list_widgets = []
-        for conversation in conversations:
-            conversation_list_widgets.append(self.conversation_list_widget(conversation))
+    def _set_filter(self, key):
+        if self.list_filter == key:
+            return
+        self.list_filter = key
+        try:
+            self.update_conversation_list()
+        except Exception as e:
+            RNS.log("Failed to apply conversation filter: "+str(e), RNS.LOG_ERROR)
 
-        self.list_widgets = conversation_list_widgets
+    def _on_show_blocked_change(self, _cb, new_state):
+        self.show_blocked = new_state
+        try:
+            self.update_conversation_list()
+        except Exception as e:
+            RNS.log("Failed to toggle show-blocked: "+str(e), RNS.LOG_ERROR)
+
+    def _apply_pile_layout(self):
+        pack_opts   = self.pile.options('pack')
+        weight_opts = self.pile.options('weight', 1)
+        items = [(self.tab_bar, pack_opts)]
+        if self.list_filter == ConversationsDisplay.LIST_FILTER_UNTRUSTED:
+            items.append((self.show_blocked_checkbox, pack_opts))
+        items.append((self.ilb, weight_opts))
+        items.append((self.sync_status_text, pack_opts))
+        try:
+            prev_focus = self.pile.focus_position
+        except Exception:
+            prev_focus = None
+        self.pile.contents = items
+        try:
+            if prev_focus is not None and prev_focus < len(items):
+                self.pile.focus_position = prev_focus
+        except Exception:
+            pass
+
+    def _blocked_row_widget(self, dest_hash):
+        g = self.app.ui.glyphs
+        entry = self.app.directory.find(dest_hash)
+        display_name = None
+        if entry is not None and getattr(entry, "display_name", None):
+            display_name = strip_modifiers(entry.display_name)
+        if not display_name:
+            display_name = RNS.prettyhexrep(dest_hash)
+        label = " "+g["cross"]+" [blocked] "+display_name+"  <"+RNS.hexrep(dest_hash, delimit=False)+">"
+        widget = ListEntry(label)
+        urwid.connect_signal(widget, "click", self._unblock_dialog, dest_hash)
+        attr = urwid.AttrMap(widget, "list_untrusted", "list_focus_untrusted")
+        attr.blocked_dest_hash = dest_hash
+        return attr
+
+    def _unblock_dialog(self, _sender, dest_hash):
+        self.dialog_open = True
+
+        def dismiss(_b):
+            self.dialog_open = False
+            self.update_conversation_list()
+
+        def confirmed(_b):
+            self.dialog_open = False
+            try:
+                self.app.unblock_destination(dest_hash)
+            except Exception as e:
+                RNS.log("Unblock failed: "+str(e), RNS.LOG_ERROR)
+            self.update_conversation_list()
+
+        try:
+            who = self.app.directory.simplest_display_str(dest_hash)
+        except Exception:
+            who = RNS.hexrep(dest_hash, delimit=False)
+
+        dialog = DialogLineBox(
+            urwid.Pile([
+                urwid.Text(""),
+                urwid.Text("Unblock "+str(who)+"?\n\nThis lifts the RNS blackhole on the peer's identity\nand removes them from your ignored list.\n", align=urwid.CENTER),
+                urwid.Columns([
+                    (urwid.WEIGHT, 0.45, urwid.Button("Yes, unblock", on_press=confirmed)),
+                    (urwid.WEIGHT, 0.10, urwid.Text("")),
+                    (urwid.WEIGHT, 0.45, urwid.Button("Cancel",       on_press=dismiss)),
+                ]),
+            ]), title="Confirm unblock"
+        )
+        dialog.delegate = self
+
+        bottom = self.listbox
+        overlay = urwid.Overlay(dialog, bottom, align=urwid.CENTER, width=urwid.RELATIVE_100, valign=urwid.MIDDLE, height=urwid.PACK, left=2, right=2)
+        try:
+            self.columns_widget.contents[0] = (
+                overlay,
+                self.columns_widget.options(urwid.GIVEN, ConversationsDisplay.given_list_width),
+            )
+            self.columns_widget.focus_position = 0
+        except Exception:
+            pass
+
+    def _build_persistent_listbox(self):
+        self.tab_trusted   = TabButton("Trusted (0)",   on_press=lambda _b: self._set_filter(ConversationsDisplay.LIST_FILTER_TRUSTED))
+        self.tab_untrusted = TabButton("Untrusted (0)", on_press=lambda _b: self._set_filter(ConversationsDisplay.LIST_FILTER_UNTRUSTED))
+
+        self.tab_bar = urwid.Columns([
+            ('weight', 1, self.tab_trusted),
+            ('weight', 1, self.tab_untrusted),
+        ], dividechars=1)
+
+        self.show_blocked_checkbox = urwid.CheckBox("Show blocked (0)", state=self.show_blocked)
+        urwid.connect_signal(self.show_blocked_checkbox, "change", self._on_show_blocked_change)
+
         self.ilb = IndicativeListBox(
-            self.list_widgets,
+            [urwid.Text("")],
             on_selection_change=self.conversation_list_selection,
             initialization_is_selection_change=False,
-            highlight_offFocus="list_off_focus"
+            highlight_offFocus="list_off_focus",
         )
 
-        self.listbox = ConversationsArea(urwid.Filler(self.ilb, height=urwid.RELATIVE_100), title="Conversations")
+        self.sync_status_text = urwid.AttrMap(urwid.Text(self._sync_status_line(), align=urwid.LEFT), "shortcutbar")
+
+        self.pile = urwid.Pile([
+            ('pack', self.tab_bar),
+            ('weight', 1, self.ilb),
+            ('pack', self.sync_status_text),
+        ])
+        try: self.pile.focus_position = 1
+        except Exception: pass
+
+        self.listbox = ConversationsArea(self.pile, title="Conversations")
         self.listbox.delegate = self
+
+    def update_listbox(self):
+        if not hasattr(self, "pile"):
+            self._build_persistent_listbox()
+
+        try:
+            conversations = self.app.conversations()
+        except Exception as e:
+            RNS.log("Failed to enumerate conversations: "+str(e), RNS.LOG_ERROR)
+            conversations = []
+
+        try:
+            if self.list_sort_mode == ConversationsDisplay.SORT_NAME:
+                conversations.sort(key=lambda e: (e[3].lower(), e[0]))
+        except Exception:
+            pass
+
+        def _is_pinned(c):
+            try:
+                entry = self.app.directory.find(bytes.fromhex(c[0]))
+                return entry is not None and entry.sort_rank is not None
+            except Exception:
+                return False
+        try:
+            conversations = sorted(conversations, key=lambda c: 0 if _is_pinned(c) else 1)
+        except Exception:
+            pass
+
+        glyphs = self.app.ui.glyphs
+        def _alerts(c):
+            return bool(c[4]) or (len(c) > 6 and bool(c[6]))
+        trusted_count    = sum(1 for c in conversations if c[2] == DirectoryEntry.TRUSTED)
+        untrusted_count  = sum(1 for c in conversations if c[2] in (DirectoryEntry.UNTRUSTED, DirectoryEntry.WARNING, DirectoryEntry.UNKNOWN))
+        trusted_unread   = sum(1 for c in conversations if c[2] == DirectoryEntry.TRUSTED and _alerts(c))
+        untrusted_unread = sum(1 for c in conversations if c[2] in (DirectoryEntry.UNTRUSTED, DirectoryEntry.WARNING, DirectoryEntry.UNKNOWN) and _alerts(c))
+
+        def _label(name, total, unread):
+            if unread:
+                return f"{name} ({total}) {glyphs['unread']} {unread}"
+            return f"{name} ({total})"
+
+        self.tab_trusted.set_label(_label("Trusted", trusted_count, trusted_unread))
+        self.tab_untrusted.set_label(_label("Untrusted", untrusted_count, untrusted_unread))
+
+        filtered = [c for c in conversations if self._conversation_filter_predicate(c)]
+
+        conversation_list_widgets = []
+        for conversation in filtered:
+            try:
+                conversation_list_widgets.append(self.conversation_list_widget(conversation))
+            except Exception as e:
+                try: hh = conversation[0]
+                except Exception: hh = "?"
+                RNS.log("Skipping conversation row for "+str(hh)+": "+str(e), RNS.LOG_ERROR)
+
+        blocked_count = len(self.app.ignored_list) if hasattr(self.app, "ignored_list") else 0
+        try:
+            self.show_blocked_checkbox.set_label(f"Show blocked ({blocked_count})")
+        except Exception:
+            pass
+
+        if self.list_filter == ConversationsDisplay.LIST_FILTER_UNTRUSTED and self.show_blocked:
+            for blocked_hash in list(self.app.ignored_list):
+                try:
+                    conversation_list_widgets.append(self._blocked_row_widget(blocked_hash))
+                except Exception as e:
+                    RNS.log("Skipping blocked row: "+str(e), RNS.LOG_ERROR)
+
+        empty_placeholder = False
+        if not conversation_list_widgets:
+            empty_label = {
+                ConversationsDisplay.LIST_FILTER_TRUSTED:   "No trusted conversations",
+                ConversationsDisplay.LIST_FILTER_UNTRUSTED: "No untrusted conversations",
+            }.get(self.list_filter, "No conversations")
+            conversation_list_widgets = [urwid.Text(empty_label, align='center')]
+            empty_placeholder = True
+
+        self.list_widgets = conversation_list_widgets
+
+        try:
+            self.ilb.set_body(conversation_list_widgets)
+        except Exception as e:
+            RNS.log("Failed to populate conversation list: "+str(e), RNS.LOG_ERROR)
+
+        self._apply_pile_layout()
+
+        if empty_placeholder:
+            try: self.pile.focus_position = 0
+            except Exception: pass
+
+        try:
+            self.sync_status_text.original_widget.set_text(self._sync_status_line())
+        except Exception:
+            pass
+
+    def _sync_status_line(self):
+        try:
+            last = self.app.peer_settings.get("last_lxmf_sync")
+        except Exception:
+            last = None
+        if not last:
+            when = "never"
+        else:
+            try:
+                when = relative_time(float(last))
+            except Exception:
+                when = "unknown"
+
+        node_label = None
+        try:
+            pn_hash = self.app.get_default_propagation_node()
+            if pn_hash is not None:
+                pn_ident = RNS.Identity.recall(pn_hash)
+                if pn_ident is not None:
+                    node_dest = RNS.Destination.hash_from_name_and_identity("nomadnetwork.node", pn_ident)
+                    entry = self.app.directory.find(node_dest)
+                    if entry is not None and getattr(entry, "display_name", None):
+                        node_label = strip_modifiers(str(entry.display_name)) or None
+                if node_label is None:
+                    node_label = "<"+RNS.hexrep(pn_hash, delimit=False)[:8]+"…>"
+        except Exception:
+            node_label = None
+
+        line = " Last sync: "+when
+        if node_label:
+            line += "  ("+node_label+")"
+        return line
+
+    def _refresh_sync_status(self, _loop=None, _data=None):
+        try:
+            if hasattr(self, "sync_status_text") and self.sync_status_text is not None:
+                self.sync_status_text.original_widget.set_text(self._sync_status_line())
+        except Exception:
+            pass
+        try:
+            self.app.ui.loop.set_alarm_in(30.0, self._refresh_sync_status)
+        except Exception:
+            pass
 
     def delete_selected_conversation(self):
         self.dialog_open = True
@@ -248,6 +592,218 @@ class ConversationsDisplay():
         options = self.columns_widget.options(urwid.GIVEN, ConversationsDisplay.given_list_width)
         self.columns_widget.contents[0] = (overlay, options)
 
+    def _refresh_open_conversation_widget(self, source_hash_text):
+        widget = ConversationsDisplay.cached_conversation_widgets.get(source_hash_text)
+        if widget is None:
+            return
+        try:
+            widget._trust_banner_dismissed = False
+        except Exception:
+            pass
+        try:
+            widget._refresh_trust_banner()
+        except Exception:
+            pass
+        try:
+            widget._update_peer_info()
+        except Exception:
+            pass
+        try:
+            widget.update_message_widgets(replace=True)
+        except Exception:
+            pass
+
+    def show_my_qr(self):
+        try:
+            addr = RNS.hexrep(self.app.lxmf_destination.hash, delimit=False)
+        except Exception:
+            return
+        try:
+            display = self.app.peer_settings.get("display_name") or "My LXMF"
+        except Exception:
+            display = "My LXMF"
+        self.show_qr_dialog(addr, title=display)
+
+    def show_qr_dialog(self, data, title=None):
+        qr_text = None
+        try:
+            import qrcode
+            try:
+                qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=1, border=1)
+                qr.add_data(data)
+                qr.make()
+                import io
+                buf = io.StringIO()
+                qr.print_ascii(out=buf, invert=False)
+                qr_text = buf.getvalue().rstrip("\n")
+            except Exception as e:
+                RNS.log("QR generation failed: "+str(e), RNS.LOG_ERROR)
+                qr_text = None
+        except Exception:
+            qr_text = None
+
+        def dismiss(_b):
+            self._restore_listbox_pane()
+
+        rows = [urwid.Text("")]
+        if qr_text is not None:
+            rows.append(urwid.Text(qr_text, align=urwid.CENTER))
+            rows.append(urwid.Text(""))
+        else:
+            rows.append(urwid.Text("LXMF destination address:", align=urwid.CENTER))
+            rows.append(urwid.Text(""))
+        rows += [
+            urwid.Text("< "+data+" >", align=urwid.CENTER),
+            urwid.Text(""),
+            urwid.Columns([
+                (urwid.WEIGHT, 1, urwid.Text("")),
+                (12, urwid.Button("Close", on_press=dismiss)),
+                (urwid.WEIGHT, 1, urwid.Text("")),
+            ]),
+            urwid.Text(""),
+        ]
+        dialog_title = "LXMF Address" if qr_text is None else "QR Code"
+        dialog = DialogLineBox(urwid.Pile(rows), title=dialog_title)
+        dialog.delegate = self
+        self._overlay_dialog(dialog)
+
+    def _overlay_dialog(self, dialog):
+        overlay = urwid.Overlay(
+            dialog, self.columns_widget,
+            align=urwid.CENTER, width=(urwid.RELATIVE, 70),
+            valign=urwid.MIDDLE, height=urwid.PACK,
+            min_width=44,
+        )
+        try:
+            self.widget.original_widget = overlay
+            self.dialog_open = True
+        except Exception:
+            pass
+
+    def _restore_listbox_pane(self):
+        try:
+            self.widget.original_widget = self.columns_widget
+            self.dialog_open = False
+            self.update_conversation_list()
+        except Exception:
+            pass
+
+    def _ping_peer_from_dialog(self, source_hash_text, status_widget, ping_button):
+        try:
+            dest = bytes.fromhex(source_hash_text)
+        except Exception:
+            status_widget.set_text(("error_text", "Invalid address"))
+            return
+
+        identity = RNS.Identity.recall(dest)
+        if identity is None:
+            status_widget.set_text(("error_text", "Identity unknown; query first"))
+            return
+
+        if not RNS.Transport.has_path(dest):
+            status_widget.set_text("No path; requesting…")
+            try: RNS.Transport.request_path(dest)
+            except Exception: pass
+
+        status_widget.set_text("Pinging…")
+        ping_button.set_label("Pinging…")
+        started_at = time.time()
+
+        def schedule_ui(fn):
+            try:
+                self.app.ui.loop.set_alarm_in(0, lambda *_: fn())
+            except Exception:
+                try: fn()
+                except Exception: pass
+
+        def on_established(link):
+            elapsed_ms = int((time.time() - started_at) * 1000)
+            try:
+                hops = RNS.Transport.hops_to(dest)
+                if hops is None or hops >= RNS.Transport.PATHFINDER_M:
+                    hops_str = ""
+                else:
+                    hops_str = f" ({hops} hop{'s' if hops != 1 else ''})"
+            except Exception:
+                hops_str = ""
+            def update():
+                status_widget.set_text(f"Pong in {elapsed_ms} ms{hops_str}")
+                ping_button.set_label("Ping")
+            schedule_ui(update)
+            try: link.teardown()
+            except Exception: pass
+
+        def on_closed(link):
+            try:
+                if getattr(link, "status", None) == RNS.Link.ACTIVE:
+                    return
+            except Exception:
+                pass
+            def update():
+                if status_widget.text.strip() in ("Pinging…", ""):
+                    status_widget.set_text(("error_text", "Ping failed (no link)"))
+                    ping_button.set_label("Ping")
+            schedule_ui(update)
+
+        try:
+            destination = RNS.Destination(identity, RNS.Destination.OUT, RNS.Destination.SINGLE, "lxmf", "delivery")
+            RNS.Link(destination, established_callback=on_established, closed_callback=on_closed)
+        except Exception as e:
+            status_widget.set_text(("error_text", f"Ping init failed: {e}"))
+            ping_button.set_label("Ping")
+
+    def _block_peer_from_dialog(self, source_hash_text):
+        try:
+            dest = bytes.fromhex(source_hash_text)
+        except Exception:
+            return
+
+        def cancel_block(_b):
+            self.update_conversation_list()
+            self.dialog_open = False
+
+        def confirm_block(_b):
+            try:
+                self.app.block_destination(dest, reason="user-blocked from peer info dialog")
+            except Exception as e:
+                RNS.log("Block failed: "+str(e), RNS.LOG_ERROR)
+            try:
+                self.delete_conversation(source_hash_text)
+                nomadnet.Conversation.delete_conversation(source_hash_text, self.app)
+            except Exception:
+                pass
+            self.update_conversation_list()
+            self.dialog_open = False
+
+        try:
+            who = self.app.directory.simplest_display_str(dest)
+        except Exception:
+            who = source_hash_text
+
+        confirm_dialog = DialogLineBox(
+            urwid.Pile([
+                urwid.Text(""),
+                urwid.Text("Block "+str(who)+"?\n\nThis blackholes the peer's identity in Reticulum,\nadds them to your ignored list, and deletes any\nconversation with them.\n", align=urwid.CENTER),
+                urwid.Columns([
+                    (urwid.WEIGHT, 0.45, urwid.Button("Yes, block", on_press=confirm_block)),
+                    (urwid.WEIGHT, 0.10, urwid.Text("")),
+                    (urwid.WEIGHT, 0.45, urwid.Button("Cancel",     on_press=cancel_block)),
+                ]),
+            ]), title="Confirm block"
+        )
+        confirm_dialog.delegate = self
+        bottom = self.listbox
+        overlay = urwid.Overlay(confirm_dialog, bottom, align=urwid.CENTER, width=urwid.RELATIVE_100, valign=urwid.MIDDLE, height=urwid.PACK, left=2, right=2)
+        try:
+            self.columns_widget.contents[0] = (
+                overlay,
+                self.columns_widget.options(urwid.GIVEN, ConversationsDisplay.given_list_width),
+            )
+            self.columns_widget.focus_position = 0
+            self.dialog_open = True
+        except Exception:
+            pass
+
     def edit_selected_in_directory(self):
         g = self.app.ui.glyphs
         self.dialog_open = True
@@ -262,6 +818,7 @@ class ConversationsDisplay():
         e_id = urwid.Edit(caption="Addr : ",edit_text=source_hash_text)
         t_id = urwid.Text("Addr : "+source_hash_text)
         e_name = urwid.Edit(caption="Name : ",edit_text=display_name)
+        e_copy = urwid.Edit(caption="Copy : ", edit_text=source_hash_text)
 
         selected_id_widget = t_id
 
@@ -272,8 +829,12 @@ class ConversationsDisplay():
         direct_selected     = True
         propagated_selected = False
 
+        pinned_initial = False
+        notes_initial  = ""
+
         try:
-            if self.app.directory.find(bytes.fromhex(source_hash_text)):
+            existing_entry = self.app.directory.find(bytes.fromhex(source_hash_text))
+            if existing_entry:
                 trust_level = self.app.directory.trust_level(bytes.fromhex(source_hash_text))
                 if trust_level == DirectoryEntry.UNTRUSTED:
                     untrusted_selected = True
@@ -291,9 +852,15 @@ class ConversationsDisplay():
                 if self.app.directory.preferred_delivery(bytes.fromhex(source_hash_text)) == DirectoryEntry.PROPAGATED:
                     direct_selected = False
                     propagated_selected = True
-                    
+
+                pinned_initial = existing_entry.sort_rank is not None
+                notes_initial  = getattr(existing_entry, "notes", "") or ""
+
         except Exception as e:
             pass
+
+        e_notes = urwid.Edit(caption="Notes: ", edit_text=notes_initial, multiline=True)
+        cb_pin  = urwid.CheckBox("Pin to top", state=pinned_initial)
 
         trust_button_group = []
         r_untrusted = urwid.RadioButton(trust_button_group, "Untrusted", state=untrusted_selected)
@@ -322,8 +889,11 @@ class ConversationsDisplay():
                 if r_propagated.state == True:
                     delivery = DirectoryEntry.PROPAGATED
 
-                entry = DirectoryEntry(source_hash, display_name, trust_level, preferred_delivery=delivery)
+                sort_rank = 0 if cb_pin.state else None
+                notes_value = e_notes.get_edit_text()
+                entry = DirectoryEntry(source_hash, display_name, trust_level, preferred_delivery=delivery, sort_rank=sort_rank, notes=notes_value)
                 self.app.directory.remember(entry)
+                self._refresh_open_conversation_widget(source_hash_text)
                 self.update_conversation_list()
                 self.dialog_open = False
                 self.app.ui.main_display.sub_displays.network_display.directory_change_callback()
@@ -363,9 +933,26 @@ class ConversationsDisplay():
                 urwid.Divider(g["divider1"]),
             ])
 
+        action_status = urwid.Text("", align=urwid.CENTER)
+        ping_button   = urwid.Button("Ping")
+        block_button  = urwid.Button("Block")
+        qr_button     = urwid.Button("LXMF")
+        urwid.connect_signal(ping_button,  "click", lambda _b: self._ping_peer_from_dialog(source_hash_text, action_status, ping_button))
+        urwid.connect_signal(block_button, "click", lambda _b: self._block_peer_from_dialog(source_hash_text))
+        urwid.connect_signal(qr_button,    "click", lambda _b: self.show_qr_dialog(source_hash_text, title=display_name or source_hash_text))
+
+        actions_row = urwid.Columns([
+            (urwid.WEIGHT, 0.32, ping_button),
+            (urwid.WEIGHT, 0.02, urwid.Text("")),
+            (urwid.WEIGHT, 0.32, block_button),
+            (urwid.WEIGHT, 0.02, urwid.Text("")),
+            (urwid.WEIGHT, 0.32, qr_button),
+        ])
+
         dialog_pile = urwid.Pile([
             selected_id_widget,
             e_name,
+            e_copy,
             urwid.Divider(g["divider1"]),
             r_untrusted,
             r_unknown,
@@ -373,7 +960,13 @@ class ConversationsDisplay():
             urwid.Divider(g["divider1"]),
             r_direct,
             r_propagated,
+            urwid.Divider(g["divider1"]),
+            cb_pin,
+            e_notes,
             known_section,
+            actions_row,
+            action_status,
+            urwid.Divider(g["divider1"]),
             urwid.Columns([
                 (urwid.WEIGHT, 0.45, urwid.Button("Save", on_press=confirmed)),
                 (urwid.WEIGHT, 0.1, urwid.Text("")),
@@ -439,6 +1032,9 @@ class ConversationsDisplay():
 
                     self.update_conversation_list()
 
+                if trust_level != DirectoryEntry.TRUSTED:
+                    if self.list_filter != ConversationsDisplay.LIST_FILTER_UNTRUSTED:
+                        self._set_filter(ConversationsDisplay.LIST_FILTER_UNTRUSTED)
                 self.display_conversation(source_hash_text)
                 self.dialog_open = False
 
@@ -658,10 +1254,84 @@ class ConversationsDisplay():
 
         self.update_conversation_list()
 
+    def _decode_pn_app_data(self, app_data):
+        try:
+            if not pn_announce_data_is_valid(app_data):
+                return None
+            data = msgpack.unpackb(app_data)
+            enabled = bool(data[2])
+            name = None
+            try:
+                meta = data[6]
+                if isinstance(meta, dict) and PN_META_NAME in meta:
+                    raw = meta[PN_META_NAME]
+                    if isinstance(raw, (bytes, bytearray)):
+                        name = raw.decode("utf-8", errors="replace")
+            except Exception:
+                name = None
+            return {"enabled": enabled, "name": name}
+        except Exception:
+            return None
+
+    def _pn_dropdown_label(self, pn_hash, meta):
+        name = (meta or {}).get("name")
+        if name:
+            label = strip_modifiers(name) or ""
+            label = " ".join(label.split())
+        else:
+            label = ""
+        if not label:
+            label = RNS.prettyhexrep(pn_hash)
+        max_len = 40
+        if len(label) > max_len:
+            label = label[:max_len-1]+"…"
+        tail = "<"+RNS.hexrep(pn_hash, delimit=False)+">"
+        if tail not in label:
+            label = label+"  "+tail
+        if meta is None:
+            status = "[?]"
+        elif meta.get("enabled"):
+            status = "[E]"
+        else:
+            status = "[D]"
+        return status+" "+label
+
+    def _build_pn_options(self):
+        options = []
+        seen = set()
+
+        try:
+            pn_announces = list(self.app.directory._pn_announces)
+        except Exception:
+            pn_announces = []
+        for tup in pn_announces:
+            if len(tup) < 3: continue
+            pn_hash  = tup[1]
+            app_data = tup[2]
+            if pn_hash in seen: continue
+            seen.add(pn_hash)
+            meta = self._decode_pn_app_data(app_data)
+            options.append((pn_hash, self._pn_dropdown_label(pn_hash, meta)))
+
+        for extra in (self.app.get_user_selected_propagation_node(), self.app.get_default_propagation_node()):
+            if extra is None or extra in seen:
+                continue
+            seen.add(extra)
+            meta = None
+            try:
+                cached = RNS.Identity.recall_app_data(extra)
+                if cached is not None:
+                    meta = self._decode_pn_app_data(cached)
+            except Exception:
+                meta = None
+            options.append((extra, self._pn_dropdown_label(extra, meta)))
+
+        return options
+
     def sync_conversations(self):
         g = self.app.ui.glyphs
         self.dialog_open = True
-        
+
         def dismiss_dialog(sender):
             self.dialog_open = False
             self.sync_dialog = None
@@ -704,36 +1374,58 @@ class ConversationsDisplay():
         ])
         real_sync_button.bc = button_columns
 
+        current_default = self.app.get_default_propagation_node()
+        user_selected   = self.app.get_user_selected_propagation_node()
+
+        pn_options = self._build_pn_options()
+
+        selected_target = user_selected if user_selected is not None else current_default
+
+        def on_pn_picked(picked_hash):
+            try:
+                self.app.set_user_selected_propagation_node(picked_hash)
+            except Exception as e:
+                RNS.log("Could not update propagation node: "+str(e), RNS.LOG_ERROR)
+
+        if pn_options:
+            node_picker = PropNodePicker(pn_options, selected_target, on_pn_picked)
+            node_selector = urwid.Pile([
+                urwid.Text("Propagation node:"),
+                node_picker,
+            ])
+        else:
+            node_selector = None
+
         pn_ident = None
-        if self.app.get_default_propagation_node() != None:
-            pn_hash = self.app.get_default_propagation_node()
-            pn_ident = RNS.Identity.recall(pn_hash)
-
-            if pn_ident == None:
+        if current_default is not None:
+            pn_ident = RNS.Identity.recall(current_default)
+            if pn_ident is None:
                 RNS.log("Propagation node identity is unknown, requesting from network...", RNS.LOG_DEBUG)
-                RNS.Transport.request_path(pn_hash)
+                RNS.Transport.request_path(current_default)
 
-        if pn_ident != None:
-            node_hash = RNS.Destination.hash_from_name_and_identity("nomadnetwork.node", pn_ident)
-            pn_entry = self.app.directory.find(node_hash)
-            pn_display_str = " "
-            if pn_entry != None:
-                pn_display_str += " "+str(pn_entry.display_name)
+        if pn_ident is not None or node_selector is not None:
+            header_str = ""
+            if pn_ident is not None:
+                node_hash = RNS.Destination.hash_from_name_and_identity("nomadnetwork.node", pn_ident)
+                pn_entry  = self.app.directory.find(node_hash)
+                if pn_entry is not None and getattr(pn_entry, "display_name", None):
+                    header_str = " "+strip_modifiers(str(pn_entry.display_name))
+                else:
+                    header_str = " "+RNS.prettyhexrep(current_default)
             else:
-                pn_display_str += " "+RNS.prettyhexrep(pn_hash)
+                header_str = " (no default)"
 
-            dialog = DialogLineBox(
-                urwid.Pile([
-                    urwid.Text(""+g["node"]+pn_display_str, align=urwid.CENTER),
-                    urwid.Divider(g["divider1"]),
-                    sync_progress,
-                    urwid.Divider(g["divider1"]),
-                    r_mall,
-                    rbs,
-                    urwid.Text(""),
-                    button_columns
-                ]), title="Message Sync"
-            )
+            pile_items = [
+                urwid.Text(""+g["node"]+header_str, align=urwid.CENTER),
+                urwid.Divider(g["divider1"]),
+                sync_progress,
+                urwid.Divider(g["divider1"]),
+            ]
+            if node_selector is not None:
+                pile_items += [node_selector, urwid.Divider(g["divider1"])]
+            pile_items += [r_mall, rbs, urwid.Text(""), button_columns]
+
+            dialog = DialogLineBox(urwid.Pile(pile_items), title="Message Sync")
         else:
             button_columns = urwid.Columns([
                 (urwid.WEIGHT, 0.45, urwid.Text("" )),
@@ -806,9 +1498,9 @@ class ConversationsDisplay():
 
         self.update_listbox()
         options = self.columns_widget.options(urwid.GIVEN, ConversationsDisplay.given_list_width)
-        if not (self.dialog_open and self.sync_dialog != None):
+        if not self.dialog_open:
             self.columns_widget.contents[0] = (self.listbox, options)
-        else:
+        elif self.sync_dialog is not None:
             bottom = self.listbox
             overlay = urwid.Overlay(
                 self.sync_dialog,
@@ -821,6 +1513,10 @@ class ConversationsDisplay():
                 right=2,
             )
             self.columns_widget.contents[0] = (overlay, options)
+        # else: another dialog (peer info, new conversation, block confirm, etc.) is
+        # open as an overlay in contents[0]; leave it alone so an incoming message
+        # doesn't dismiss it. The underlying listbox is a persistent widget and was
+        # already refreshed by update_listbox() above.
 
         if selected_hash is not None:
             for idx, widget in enumerate(self.list_widgets):
@@ -848,17 +1544,16 @@ class ConversationsDisplay():
                 self.app.mark_conversation_read(self.currently_displayed_conversation)
 
         self.currently_displayed_conversation = source_hash
-        # options = self.widget.options(urwid.WEIGHT, 1-ConversationsDisplay.list_width)
-        options = self.widget.options(urwid.WEIGHT, 1)
-        self.widget.contents[1] = (self.make_conversation_widget(source_hash), options)
+        options = self.columns_widget.options(urwid.WEIGHT, 1)
+        self.columns_widget.contents[1] = (self.make_conversation_widget(source_hash), options)
         if source_hash == None:
-            self.widget.focus_position = 0
+            self.columns_widget.focus_position = 0
         else:
             if self.app.conversation_is_unread(source_hash):
                 self.app.mark_conversation_read(source_hash)
                 self.update_conversation_list()
 
-            self.widget.focus_position = 1
+            self.columns_widget.focus_position = 1
             conversation_position = None
             index = 0
             for widget in self.list_widgets:
@@ -907,6 +1602,7 @@ class ConversationsDisplay():
         source_hash    = conversation[0]
         unread         = conversation[4]
         last_activity  = conversation[5]
+        failed         = conversation[6] if len(conversation) > 6 else 0
 
         g = self.app.ui.glyphs
 
@@ -920,8 +1616,8 @@ class ConversationsDisplay():
             focus_style   = "list_focus"
         elif trust_level == DirectoryEntry.TRUSTED:
             symbol        = g["check"]
-            style         = "list_trusted"
-            focus_style   = "list_focus_trusted"
+            style         = "body_text"
+            focus_style   = "list_focus"
         elif trust_level == DirectoryEntry.WARNING:
             symbol        = g["warning"]
             style         = "list_warning"
@@ -931,27 +1627,35 @@ class ConversationsDisplay():
             style         = "list_untrusted"
             focus_style   = "list_focus_untrusted"
 
-        display_text = symbol
+        is_pinned = False
+        try:
+            entry = self.app.directory.find(bytes.fromhex(source_hash))
+            is_pinned = entry is not None and entry.sort_rank is not None
+        except Exception:
+            is_pinned = False
+
+        head = symbol
+        if is_pinned:
+            head = g.get("pin", "*") + " " + head
 
         if display_name != None and display_name != "":
-            display_text += " "+display_name
+            head += " "+display_name
 
         if trust_level != DirectoryEntry.TRUSTED:
-            display_text += " <"+source_hash+">"
-        
-        if trust_level != DirectoryEntry.UNTRUSTED:
-            if unread:
-                if source_hash != self.currently_displayed_conversation:
-                    if unread > 1:
-                        display_text += " "+g["unread"]+" ("+str(unread)+")"
-                    else:
-                        display_text += " "+g["unread"]
+            head += " <"+source_hash+">"
 
+        markup = [head]
+        if failed and source_hash != self.currently_displayed_conversation:
+            badge_text = " "+g["warning"]+" ("+str(failed)+")"
+            markup.append(("msg_header_caution", badge_text))
+        elif unread and source_hash != self.currently_displayed_conversation:
+            badge_text = " "+g["unread"]+" ("+str(unread)+")"
+            markup.append(("msg_header_delivered", badge_text))
 
         if last_activity > 0:
-            display_text += "\n  "+relative_time(last_activity)
+            markup.append("\n  "+relative_time(last_activity))
 
-        widget = ListEntry(display_text)
+        widget = ListEntry(markup)
         urwid.connect_signal(widget, "click", self.display_conversation, conversation[0])
         display_widget = urwid.AttrMap(widget, style, focus_style)
         display_widget.source_hash = source_hash
@@ -961,7 +1665,12 @@ class ConversationsDisplay():
 
 
     def shortcuts(self):
-        focus_path = self.widget.get_focus_path()
+        try:
+            focus_path = self.columns_widget.get_focus_path()
+        except Exception:
+            return self.list_shortcuts
+        if not focus_path:
+            return self.list_shortcuts
         if focus_path[0] == 0:
             return self.list_shortcuts
         elif focus_path[0] == 1:
@@ -1022,10 +1731,26 @@ class MessageEdit(urwid.Edit):
 
 class ConversationFrame(urwid.Frame):
     def keypress(self, size, key):
+        if self.focus_position == "header":
+            result = super(ConversationFrame, self).keypress(size, key)
+            if result == "up":
+                nomadnet.NomadNetworkApp.get_shared_instance().ui.main_display.frame.focus_position = "header"
+                return None
+            if result == "down":
+                self.focus_position = "body"
+                return None
+            return result
         if self.focus_position == "body":
             if getattr(self.delegate, "dialog_active", False) or getattr(self.delegate, "dialog_open", False):
                 return super(ConversationFrame, self).keypress(size, key)
             elif key == "up" and self.delegate.messagelist.top_is_visible:
+                if getattr(self.delegate, "has_visible_trust_banner", lambda: False)():
+                    try:
+                        self.delegate._header_pile.focus_position = 1
+                        self.focus_position = "header"
+                        return None
+                    except Exception:
+                        pass
                 nomadnet.NomadNetworkApp.get_shared_instance().ui.main_display.frame.focus_position = "header"
             elif key == "down" and self.delegate.messagelist.bottom_is_visible:
                 self.focus_position = "footer"
@@ -1073,14 +1798,10 @@ class ConversationWidget(urwid.WidgetWrap):
                 self.peer_info_widget = urwid.AttrMap(urwid.Text(""), "msg_header_sent")
                 self._update_peer_info()
 
-                header_widgets = [self.peer_info_widget]
-                if self.conversation.trust_level == DirectoryEntry.UNTRUSTED:
-                    header_widgets.append(urwid.AttrMap(
-                        urwid.Padding(
-                            urwid.Text(g["warning"]+" Warning: Conversation with untrusted peer "+g["warning"], align=urwid.CENTER)),
-                        "msg_warning_untrusted",
-                    ))
-                header = urwid.Pile(header_widgets)
+                self._trust_banner_dismissed = False
+                self._header_pile = urwid.Pile([self.peer_info_widget])
+                self._refresh_trust_banner()
+                header = self._header_pile
 
                 self.minimal_editor = urwid.AttrMap(msg_editor, "msg_editor")
                 self.minimal_editor.name = "minimal_editor"
@@ -1118,6 +1839,137 @@ class ConversationWidget(urwid.WidgetWrap):
                 )
                 
                 super().__init__(self.display_widget)
+
+    def has_visible_trust_banner(self):
+        if self._trust_banner_dismissed:
+            return False
+        try:
+            tl = self.app.directory.trust_level(bytes.fromhex(self.source_hash))
+        except Exception:
+            tl = DirectoryEntry.UNKNOWN
+        return tl != DirectoryEntry.TRUSTED
+
+    def _refresh_trust_banner(self):
+        contents = [(self.peer_info_widget, self._header_pile.options())]
+        if self.has_visible_trust_banner():
+            banner = self._build_trust_banner()
+            contents.append((banner, self._header_pile.options()))
+        self._header_pile.contents = contents
+        if len(contents) > 1:
+            try: self._header_pile.focus_position = 1
+            except Exception: pass
+
+    def _build_trust_banner(self):
+        g = self.app.ui.glyphs
+        msg = urwid.Text(" "+g["warning"]+" This peer isn't trusted yet.")
+        btn_trust   = urwid.Button("Trust",      on_press=self._on_trust_click)
+        btn_block   = urwid.Button("Block",      on_press=self._on_block_click)
+        btn_nothing = urwid.Button("Do nothing", on_press=self._on_ignore_click)
+        row = urwid.Columns([
+            ('weight', 1, msg),
+            ('pack',   btn_trust),
+            (1,        urwid.Text(" ")),
+            ('pack',   btn_block),
+            (1,        urwid.Text(" ")),
+            ('pack',   btn_nothing),
+            (1,        urwid.Text(" ")),
+        ], dividechars=0)
+        return urwid.AttrMap(row, "msg_warning_untrusted")
+
+    def _on_trust_click(self, _btn):
+        try:
+            src = bytes.fromhex(self.source_hash)
+            existing = self.app.directory.find(src)
+            display_name = getattr(existing, "display_name", None) if existing is not None else None
+            preferred = getattr(existing, "preferred_delivery", None) if existing is not None else None
+            entry = DirectoryEntry(src, display_name, DirectoryEntry.TRUSTED, preferred_delivery=preferred)
+            self.app.directory.remember(entry)
+        except Exception as e:
+            RNS.log("Could not mark peer as trusted: "+str(e), RNS.LOG_ERROR)
+        self._refresh_trust_banner()
+        try:
+            self.frame.focus_position = "footer"
+        except Exception:
+            pass
+        try:
+            if self.delegate.list_filter != ConversationsDisplay.LIST_FILTER_TRUSTED:
+                self.delegate._set_filter(ConversationsDisplay.LIST_FILTER_TRUSTED)
+            else:
+                self.delegate.update_conversation_list()
+        except Exception as e:
+            RNS.log("Trust UI refresh failed: "+str(e), RNS.LOG_ERROR)
+
+    def _on_ignore_click(self, _btn):
+        self._trust_banner_dismissed = True
+        self._refresh_trust_banner()
+
+    def _on_block_click(self, _btn):
+        def dismiss(_b):
+            self.dialog_active = False
+            try: self.delegate.dialog_open = False
+            except Exception: pass
+            try: self.delegate.update_conversation_list()
+            except Exception: pass
+
+        def confirmed(_b):
+            self.dialog_active = False
+            try: self.delegate.dialog_open = False
+            except Exception: pass
+            try:
+                self._block_peer()
+            except Exception as e:
+                RNS.log("Block failed: "+str(e), RNS.LOG_ERROR)
+            try: self.delegate.update_conversation_list()
+            except Exception: pass
+
+        try:
+            who = self.app.directory.simplest_display_str(bytes.fromhex(self.source_hash))
+        except Exception:
+            who = self.source_hash
+
+        dialog = DialogLineBox(
+            urwid.Pile([
+                urwid.Text(""),
+                urwid.Text("Block "+str(who)+"?\n\nThis will blackhole the peer's identity in Reticulum,\nadd them to your ignored list, and delete this conversation.\n", align=urwid.CENTER),
+                urwid.Columns([
+                    (urwid.WEIGHT, 0.45, urwid.Button("Yes, block", on_press=confirmed)),
+                    (urwid.WEIGHT, 0.10, urwid.Text("")),
+                    (urwid.WEIGHT, 0.45, urwid.Button("Cancel",     on_press=dismiss)),
+                ]),
+            ]), title="Confirm block"
+        )
+        dialog.delegate = self.delegate
+
+        bottom = self.delegate.listbox
+        overlay = urwid.Overlay(dialog, bottom, align=urwid.CENTER, width=urwid.RELATIVE_100, valign=urwid.MIDDLE, height=urwid.PACK, left=2, right=2)
+        try:
+            self.delegate.columns_widget.contents[0] = (
+                overlay,
+                self.delegate.columns_widget.options(urwid.GIVEN, ConversationsDisplay.given_list_width),
+            )
+            self.delegate.columns_widget.focus_position = 0
+            self.dialog_active = True
+            try: self.delegate.dialog_open = True
+            except Exception: pass
+        except Exception:
+            pass
+
+    def _block_peer(self):
+        try:
+            src = bytes.fromhex(self.source_hash)
+        except Exception:
+            return
+
+        try:
+            self.app.block_destination(src, reason="user-blocked from nomadnet conversation")
+        except Exception as e:
+            RNS.log("Block failed: "+str(e), RNS.LOG_ERROR)
+
+        try:
+            self.delegate.delete_conversation(self.source_hash)
+            nomadnet.Conversation.delete_conversation(self.source_hash, self.app)
+        except Exception as e:
+            RNS.log("Could not delete blocked conversation: "+str(e), RNS.LOG_ERROR)
 
     def _update_peer_info(self):
         def san(name):
@@ -1669,6 +2521,15 @@ class LXMessageWidget(urwid.WidgetWrap):
         if message.get_title() != "":
             title_string += " | " + message.get_title()
 
+        inbound_untrusted = False
+        if not is_outbound and msg_source_hash is not None:
+            try:
+                sender_trust = app.directory.trust_level(msg_source_hash)
+                if sender_trust in (DirectoryEntry.UNTRUSTED, DirectoryEntry.WARNING, DirectoryEntry.UNKNOWN):
+                    inbound_untrusted = True
+            except Exception:
+                inbound_untrusted = False
+
         has_attachments = message.has_attachments()
         cached_names = message._cached_attachment_names or []
 
@@ -1714,6 +2575,12 @@ class LXMessageWidget(urwid.WidgetWrap):
         pile_widgets.append(urwid.Text(indented))
 
         if has_attachments and cached_names:
+            if inbound_untrusted:
+                pile_widgets.append(urwid.AttrMap(
+                    urwid.Text("  "+g["warning"]+" This attachment came from a peer that's untrusted. Be careful when opening it."),
+                    "list_untrusted",
+                ))
+
             att_file_idx = 0
             for atype, aname, *arest in cached_names:
                 glyph = g["file"] if atype == "file" else g[atype]

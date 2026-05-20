@@ -216,6 +216,7 @@ class RRCHub:
         self.welcomed    = False
         self.hub_name    = None
         self.hub_version = None
+        self.motd        = None
 
         self.max_nick_bytes        = DEFAULT_MAX_NICK_BYTES
         self.max_room_name_bytes   = DEFAULT_MAX_ROOM_BYTES
@@ -453,6 +454,7 @@ class RRCHub:
         with self._lock:
             self.link = None
             self.welcomed = False
+            self.motd = None
             self.members.clear()
             self._resource_expectations.clear()
             self._pending_joins.clear()
@@ -1043,9 +1045,14 @@ class RRCHub:
                     self.manager._notify_change(self)
                     if silent_who:
                         return
+                room_n = room.strip().lower() if isinstance(room, str) else None
+                if room_n is None and isinstance(body, str) and body.strip():
+                    with self._lock:
+                        self.motd = body
+                    self.manager._notify_change(self)
                 msg = RRCMessage(
                     "notice",
-                    room.strip().lower() if isinstance(room, str) else None,
+                    room_n,
                     bytes(src) if isinstance(src, (bytes, bytearray)) else None,
                     None,
                     body,
@@ -1172,6 +1179,10 @@ class RRCHub:
                     text = data.decode(encoding, errors="replace")
                 except Exception:
                     return
+                if kind == RES_KIND_MOTD:
+                    with self._lock:
+                        self.motd = text
+                    self.manager._notify_change(self)
                 msg = RRCMessage("notice", room, None, None, text, _now_ms())
                 self._record_notice(msg)
         except Exception as e:

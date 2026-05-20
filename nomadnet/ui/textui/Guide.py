@@ -60,6 +60,47 @@ class SelectText(urwid.Text):
         self._emit('click')
         return True
 
+def _rows_above(attrmaps, index, cols):
+    if index <= 0 or not attrmaps:
+        return 0
+    total = 0
+    for i in range(min(index, len(attrmaps))):
+        try:
+            total += attrmaps[i].rows((cols,))
+        except Exception:
+            total += 1
+    return total
+
+
+class GuideLinkDelegate:
+    def __init__(self, app, reader=None):
+        self.app = app
+        self.reader = reader
+        self.last_keypress = 0
+
+    def marked_link(self, target, fields=None):
+        pass
+
+    def micron_released_focus(self):
+        pass
+
+    def handle_link(self, target, fields=None):
+        if not target:
+            return
+        if target.startswith("#"):
+            if self.reader is not None:
+                try:
+                    self.reader.jump_to_anchor(target[1:])
+                except Exception as e:
+                    RNS.log("Guide anchor jump failed: "+str(e), RNS.LOG_ERROR)
+            return
+        try:
+            self.app.ui.main_display.show_network(None)
+            self.app.ui.main_display.sub_displays.network_display.browser.handle_link(target, fields)
+        except Exception as e:
+            RNS.log("Could not open guide link: "+str(e), RNS.LOG_ERROR)
+
+
 class GuideEntry(urwid.WidgetWrap):
     def __init__(self, app, parent, reader, topic_name):
         self.app = app
@@ -79,7 +120,7 @@ class GuideEntry(urwid.WidgetWrap):
 
     def display_topic(self, event, topic):
         markup = TOPICS[topic]
-        attrmaps = markup_to_attrmaps(markup, url_delegate=None)
+        attrmaps = markup_to_attrmaps(markup, url_delegate=GuideLinkDelegate(self.app, reader=self.reader))
 
         topic_position = None
         index = 0
@@ -109,6 +150,7 @@ class TopicList(urwid.WidgetWrap):
         self.topic_list = [
             GuideEntry(self.app, self, guide_display, "Introduction"),
             GuideEntry(self.app, self, guide_display, "Concepts & Terminology"),
+            GuideEntry(self.app, self, guide_display, "Channels & RRC"),
             GuideEntry(self.app, self, guide_display, "Interfaces"),
             GuideEntry(self.app, self, guide_display, "Hosting a Node"),
             GuideEntry(self.app, self, guide_display, "Configuration Options"),
@@ -166,9 +208,52 @@ class GuideDisplay():
     def set_content_widgets(self, new_content):
         options = self.columns.options(width_type=urwid.WEIGHT, width_amount=1-GuideDisplay.list_width, box_widget=True)
         pile = urwid.Pile(new_content)
-        content = urwid.LineBox(urwid.AttrMap(ScrollBar(Scrollable(pile), thumb_char="\u2503", trough_char=" "), "scrollbar"))
+        self._content_attrmaps = new_content
+        self._content_scrollable = Scrollable(pile)
+        content = urwid.LineBox(urwid.AttrMap(ScrollBar(self._content_scrollable, thumb_char="\u2503", trough_char=" "), "scrollbar"))
 
         self.columns.contents[1] = (content, options)
+
+    def jump_to_anchor(self, name):
+        scrollable = getattr(self, "_content_scrollable", None)
+        attrmaps   = getattr(self, "_content_attrmaps",   None)
+        if scrollable is None or attrmaps is None:
+            return
+        anchors     = getattr(attrmaps, "anchors", None) or {}
+        header_rows = getattr(attrmaps, "header_rows", None) or []
+        cols = self._content_cols()
+        target_idx = None
+        if name:
+            target_idx = anchors.get(name)
+            if target_idx is None:
+                return
+        else:
+            try: current = scrollable.get_scrollpos()
+            except Exception: current = 0
+            for hr in header_rows:
+                if _rows_above(attrmaps, hr, cols) > current:
+                    target_idx = hr
+                    break
+            if target_idx is None:
+                return
+        row_offset = _rows_above(attrmaps, target_idx, cols)
+        try:
+            scrollable.set_scrollpos(int(row_offset))
+        except Exception:
+            pass
+
+    def _content_cols(self):
+        try:
+            cols = self.app.ui.loop.screen.get_cols_rows()[0]
+        except Exception:
+            cols = 100
+        try:
+            widths = self.columns.column_widths((cols,))
+            if len(widths) > 1 and widths[1] > 0:
+                return max(40, widths[1] - 3)
+        except Exception:
+            pass
+        return max(40, int(cols * (1 - GuideDisplay.list_width)) - 3)
 
     def shortcuts(self):
         return self.shortcuts_display
@@ -191,7 +276,7 @@ Nomad Network is build on LXMF and Reticulum, which together provides the crypto
 
 Nomad Network does not need any connections to the public internet to work. In fact, it doesn't even need an IP or Ethernet network. You can use it entirely over packet radio, LoRa or even serial lines. But if you wish, you can bridge islanded Reticulum networks over the Internet or private ethernet networks, or you can build networks running completely over the Internet. The choice is yours.
 
-The current version of the program should be considered a beta release. The program works well, but there will most probably be bugs and possibly sub-optimal performance in some scenarios. On the other hand, this is the best time to have an influence on the direction of the development of Nomad Network. To do so, join the discussion on the Nomad Network project on GitHub.
+The current version of the program should be considered a beta release. The program works well, but there will most probably be bugs and possibly sub-optimal performance in some scenarios. On the other hand, this is the best time to have an influence on the direction of the development of Nomad Network. To do so, join the discussion on the Nomad Network project at `_`F00f`[Aleph git`a8d24177d946de4f1f0a0fe1af9a1338:/page/index.mu]`f`_.
 
 '''
 
@@ -612,6 +697,61 @@ Conversations in Nomad Network
 '''
 
 
+TOPIC_CHANNELS = '''>Channels & RRC
+
+NomadNet includes a built-in client for `*RRC`* (Reticulum Relay Chat), a real-time text chat protocol that runs over Reticulum. The reference RRC server implementation lives at https://github.com/kc1awv/rrcd. Each RRC server is called a `!hub`!, and each hub hosts one or more `!rooms`! (channels) you can join. Hubs are addressed by a Reticulum destination hash, just like nodes and conversations.
+
+The Channels section of NomadNet (accessible from the main menu, or by pressing the corresponding shortcut) is where you manage your hubs, view connection status, and chat in rooms.
+
+>>Joining a hub
+
+To start chatting on a hub you must first add it to your hub list:
+
+>>>
+ - Open the `![ Channels ]`! section.
+ - Press the shortcut to open the `*New Hub`* dialog (shown in the shortcut bar at the bottom).
+ - Enter the `!hub address`! (the destination hash of the hub, typically 16 hex characters / 8 bytes) and an optional display name.
+ - Confirm the dialog. The hub will appear in your hub list.
+<
+
+You can sometimes receive a hub link from another user or from a node page. Activating such a link will pre-fill the New Hub dialog (and optionally a room name) for you.
+
+>>Connecting and listing rooms
+
+Once a hub is added:
+
+>>>
+ - Select the hub in the list and connect to it. Hubs can also be set to auto-reconnect.
+ - When connected, run `*/list`* to see public rooms hosted on this hub.
+ - Run `*/join <room>`* to join a room. Joined rooms appear under the hub in your channel list.
+<
+
+>>Chatting
+
+Inside a room, anything you type that does not start with a `*/`* is sent as a message to everyone in the room. The most common in-room commands are:
+
+>>>
+ - `*/help`*  show the full list of commands
+ - `*/who`*   list users in the current room
+ - `*/nick <name>`*   set your display name on this hub
+ - `*/topic <room> [text]`*   view or set the room topic
+ - `*/part [room]`*   leave a room (defaults to the current one)
+ - `*/quit`*   disconnect from the hub
+<
+
+Messages support both `*markdown`* and `*micron`* formatting, depending on your render settings (see the `*Configuration Options`* topic). Because the backtick is the micron control character, you must use the `!broken-bar`! character `*¦`* in place of `*\\``* when typing micron formatting in a message. The renderer converts `*¦`* back to `*\\``* for display.
+
+>>Mentions and privacy
+
+You will be notified (and the bell may ring, depending on your configuration) when another user mentions your nick with `*@yournick`*. RRC traffic is end-to-end encrypted by Reticulum between you and the hub, but other users in the same room can read what you write there. Treat rooms as semi-public spaces.
+
+>>Hub etiquette
+
+Each hub is operated independently and may have its own rules, MOTD, ban list and operator team. Be respecful, follow the hub's MOTD, and remember that operators can kick, ban and set modes on rooms they own.
+
+'''
+
+
 TOPIC_FIRST_RUN = '''>First Time Information
 
 Hi there. This first run message will only appear once. It contains a few pointers on getting started with Nomad Network, and getting the most out of the program.
@@ -622,7 +762,33 @@ To get the most out of Nomad Network, you will need a terminal that supports UTF
 
 It is recommended to use a terminal size of at least 135x32. Nomad Network will work with smaller terminal sizes, but the interface might feel a bit cramped.
 
-If you don't already have a Nerd Font installed (see https://www.nerdfonts.com/), I also highly recommend to do so, since it will greatly expand the amount of glyphs, icons and graphics that Nomad Network can use. Once you have your terminal set up with a Nerd Font, go to the `![ Config ]`! menu item and enable Nerd Fonts in the configuration instead of normal unicode glyphs.
+Nerd Fonts and true-color are enabled by default. To get the full visual experience you should have a Nerd Font installed in your terminal. You can verify this by visiting the `*Display Test`* topic in this guide and checking the `!Nerd Font Rendering Test`! section. If those glyphs render correctly, you are good to go.
+
+If they do not render, install a Nerd Font and configure your terminal to use it. A few common approaches:
+
+>>>
+ - `!Download from nerdfonts.com`!
+   Visit https://www.nerdfonts.com/font-downloads, pick a font you like
+   (Jet Brains Mono, Hack and Meslo are popular choices), unzip it
+   into `*~/.local/share/fonts`* (Linux) or install via Font Book (macOS),
+   then refresh the font cache with `*fc-cache -fv`* on Linux.
+
+ - `!Package manager`!
+   Many distros ship Nerd Font packages. On Arch: `*pacman -S ttf-nerd-fonts-symbols`*
+   or one of the per-family packages. On Debian/Ubuntu look for `*fonts-firacode`*
+   plus the symbols-only Nerd Font package, or install manually from the
+   nerdfonts.com release.
+
+ - `!Homebrew (macOS)`!
+   `*brew install --cask font-fira-code-nerd-font`* (or any other family).
+
+ - `!Configure your terminal`!
+   After installing, set your terminal emulator's font to the Nerd Font
+   variant (it usually has "Nerd Font" in the name). Restart NomadNet
+   so the new font are picked up.
+<
+
+If for some reason you cannot or do not want to use a Nerd Font, you can disable Nerd Font glyphs in the `![ Config ]`! menu and NomadNet will fall back to plain unicode symbols.
 
 Nomad Network expects that you are already connected to some form of Reticulum network. That could be as simple as the default one that Reticulum auto-generates on your local ethernet/WiFi network, or something much more complex. This short guide won't go into any details on building networks, but you will find other entries in the guide that deal with network setup and configuration.
 
@@ -1073,6 +1239,23 @@ The following line should contain a grayscale gradient bar:
 Unicode Glyphs   : \u2713  \u2715  \u26a0  \u24c3  \u2193
 
 Nerd Font Glyphs : \uf484  \U000f04c5  \U000f0219  \U000f0002  \uf415  \uf023  \uf06e
+
+
+>>Nerd Font Rendering Test
+
+`cSince Nerd Font glyphs and true-color are enabled by default, the rows below should render as crisp icons rather than empty squares, question marks, or fallback ASCII. If any glyph appears blank or boxed, your terminal is not using a Nerd Font, or the font is missing the required glyph range.
+``
+
+>>>
+Common UI icons   : \uf484  \uf415  \uf023  \uf06e  \uf055  \uf056  \uf059
+Status / state    : \U000f04c5  \U000f0219  \U000f0002  \U000f1397  \U000f12fc  \U000f0156
+Network / radio   : \U000f05a9  \U000f05aa  \U000f05ab  \U000f05ac  \uf1eb  \uf012
+People / messaging: \uf0c0  \uf007  \uf2bd  \uf0e0  \uf27a  \uf086
+Devices / files   : \uf233  \uf07b  \uf15b  \uf019  \uf093  \uf1c0
+<
+
+`cIf the above renders correctly, you have a working Nerd Font setup and can leave the defaults as-is. If not, see the `*First Time Information`* topic for install instructions.
+``
 '''
 
 
@@ -1130,6 +1313,22 @@ Micron generates formatted text for your terminal
 Nomad Network supports a simple and functional markup language called `*micron`*. If you are familiar with `*markdown`* or `*HTML`*, you will feel right at home writing pages with micron.
 
 With micron you can easily create structured documents and pages with formatting, colors, glyphs and icons, ideal for display in terminals.
+
+>Table of Contents
+
+`F00f`_`[A Few Demo Outputs`#a-few-demo-outputs]`_`f
+`F00f`_`[Micron Tags`#micron-tags]`_`f
+`F00f`_`[High Level Stuff`#high-level-stuff]`_`f
+`F00f`_`[Colors`#colors]`_`f
+`F00f`_`[Page Foreground and Background Colors`#page-foreground-and-background-colors]`_`f
+`F00f`_`[Links`#links]`_`f
+`F00f`_`[Anchors`#anchors]`_`f
+`F00f`_`[Tables`#tables]`_`f
+`F00f`_`[Fields & Requests`#fields-requests]`_`f
+`F00f`_`[Comments`#comments]`_`f
+`F00f`_`[Partials`#partials]`_`f
+`F00f`_`[Literals`#literals]`_`f
+`F00f`_`[Closing Remarks`#closing-remarks]`_`f
 
 >>Recommendations and Requirements
 
@@ -1341,6 +1540,55 @@ Here is `F00f`_`[a more visible link`72914442a3689add83a09a767963f57c:/page/inde
 ``
 
 When links like these are displayed in the built-in browser, clicking on them or activating them using the keyboard will cause the browser to load the specified URL.
+
+>Anchors
+
+Anchors let you create jump points within a single page similar to anchors in HTML. You declare a position in the page with a name, then link to it from anywhere on the same page.
+
+>>Auto-anchors from headers
+
+Every section heading you write also becomes an anchor automatically. The anchor name is the heading text after `*slugifying`*: lowercased, with any run of non-alphanumeric characters replaced by a single hyphen, and leading or trailing hyphens stripped. So `*>Hello World`* becomes the anchor `*hello-world`*, and `*>Introduction & Setup`* becomes `*introduction-setup`*.
+
+>>Explicit anchors
+
+If you want an anchor, that isn't tied to a heading, place one anywhere in your text with the \\`: tag, followed by a name. Names may contain the characters `*A-Z`*, `*a-z`*, `*0-9`*, `*_`* and `*-`*, and end at any other character (a space, a newline, or punctuation).
+
+The anchor itself takes up no space and does not render. Is's just a position marker. An explicit anchor declared on an otherwise empty line binds to that line's position.
+
+`Faaa
+`=
+`:install-notes
+Some installation notes for the user.
+
+You can also drop one mid-line. Example: see `:tip-3 ⚠ tip 3 below for caveats.
+`=
+``
+
+>>Linking to an anchor
+
+Reuse the standard link syntax, with a `*#`*-prefixed URL:
+
+`Faaa
+`=
+`[Jump to Install Notes`#install-notes]
+`=
+``
+
+When the user activates the link the browser scrolls the current page to the anchor's row.
+
+>>Jumping to the next section
+
+If the URL is just `*#`* with no name after it, the link jumps to the next \\`> header that appears after the link's own position in the document. This is convenient for "Continue ↓" buttons after a long paragraph, without having to name every section:
+
+`Faaa
+`=
+`[Continue`#]
+`=
+``
+
+>>Notes on namespaces and collisions
+
+Auto-anchors from headings and explicit \\`: anchors share a single namespace per page. If an explicit anchor collides with a heading slug, the first one declared is where it will jump to. 
 
 >Tables
 
@@ -1564,6 +1812,7 @@ TOPIC_MARKUP += "\n`=\n\n>Closing Remarks\n\nIf you made it all the way here, yo
 TOPICS = {
     "Introduction": TOPIC_INTRODUCTION,
     "Concepts & Terminology": TOPIC_CONCEPTS,
+    "Channels & RRC": TOPIC_CHANNELS,
     "Conversations": TOPIC_CONVERSATIONS,
     "Interfaces": TOPIC_INTERFACES,
     "Hosting a Node": TOPIC_HOSTING,
