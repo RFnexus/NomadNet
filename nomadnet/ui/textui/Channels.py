@@ -909,12 +909,14 @@ class _ChatLinkDelegate:
         except Exception as e:
             RNS.log("Could not open page link: "+str(e), RNS.LOG_ERROR)
 
-def get_nick_color(sender_hash, theme, shift=15):
+def get_nick_color(sender_hash, theme, app, shift=15):
+    if app.rrc_nick_colors_theme: nick_colors = app.rrc_nick_colors_theme
+    else: nick_colors = theme["nick_colors"]
     if type(sender_hash) == str:
         try: sender_hash = sender_hash.encode("utf-8")
         except: pass
     if not type(sender_hash) == bytes: return theme["nick_peer"]
-    return theme["nick_colors"][(int.from_bytes(sender_hash)+shift)%len(theme["nick_colors"])]
+    return nick_colors[(int.from_bytes(sender_hash)+shift)%len(nick_colors)]
 
 room_nick_src_cache = {}
 mdc = MarkdownToMicron(max_width=80, syntax_highlighter=SyntaxHighlighter(), url_scope=None)
@@ -978,7 +980,7 @@ def _message_widget(app, hub, m, link_delegate=None):
         if ms.startswith("irc_mention"):
             if not app.rrc_nick_colors: message_body += f"`!`F{t['mention']}{mb}`f`!"
             else:
-                try: message_body += f"`!`FT{get_nick_color(room_nick_src_cache[m.nick], t)}{mb}`f`!"
+                try: message_body += f"`!`FT{get_nick_color(room_nick_src_cache[m.nick], t, app)}{mb}`f`!"
                 except: message_body += f"`!`F{t['mention']}{mb}`f`!"
 
         elif ms.startswith("link_"):
@@ -998,7 +1000,7 @@ def _message_widget(app, hub, m, link_delegate=None):
                 mbo = mdc.format_block(strip_escaped_micron(mb)) if app.rrc_ui_render_markdown else strip_escaped_micron(mb)
                 message_body += strip_non_formatting_tags(mbo)
 
-    if app.rrc_nick_colors: nick_attr = f"`FT{get_nick_color(m.src, t)}"
+    if app.rrc_nick_colors: nick_attr = f"`FT{get_nick_color(m.src, t, app)}"
     else:                   nick_attr = f"`F{t['nick_self']}" if own else f"`F{t['nick_peer']}"
     irc_ts = f"`F{t['ts']}"
 

@@ -157,6 +157,7 @@ class NomadNetworkApp:
         self.rrc_filter_loaded_history = True
         self.rrc_ephemeral_notices = 600
         self.rrc_nick_colors = True
+        self.rrc_nick_colors_theme = None
         self.rrc_ui_justify_msgs = True
         self.rrc_ui_space_msgs = False
         self.rrc_ui_render_markdown = True
@@ -950,6 +951,20 @@ class NomadNetworkApp:
                     except Exception: value = True
                     self.rrc_nick_colors = value
 
+                if option == "nick_colors_theme":
+                    try:
+                        colors = self.config["rrc"].as_list(option)
+                        nick_colors_theme = []
+                        for c in colors:
+                            if len(c) == 6:
+                                try: bytes.fromhex(c)
+                                except: continue
+                                nick_colors_theme.append(c)
+                        self.rrc_nick_colors_theme = nick_colors_theme
+                    except Exception as e:
+                        RNS.log(f"Could not load custom nick colors theme: {e}", RNS.LOG_WARNING)
+                        self.rrc_nick_colors_theme = None
+
                 if option == "render_markdown":
                     try: value = self.config["rrc"].as_bool(option)
                     except Exception: value = True
@@ -1305,6 +1320,11 @@ render_micron = yes
 nick_colors = yes
 justify_msgs = yes
 space_msgs = no
+
+# You can configure your own color theme
+# for nick color assignment
+# nick_colors_theme = f68787, 00c394, d59e00, ...
+
 
 [node]
 
