@@ -884,8 +884,7 @@ class ConversationsDisplay():
             conversation_widget.check_editor_allowed()
             return conversation_widget
         else:
-            widget = ConversationWidget(source_hash)
-            widget.delegate = self
+            widget = ConversationWidget(source_hash, delegate=self)
             ConversationsDisplay.cached_conversation_widgets[source_hash] = widget
 
             widget.check_editor_allowed()
@@ -1042,9 +1041,10 @@ class ConversationFrame(urwid.Frame):
             return super(ConversationFrame, self).keypress(size, key)
 
 class ConversationWidget(urwid.WidgetWrap):
-    def __init__(self, source_hash):
+    def __init__(self, source_hash, delegate):
         self.app = nomadnet.NomadNetworkApp.get_shared_instance()
         g = self.app.ui.glyphs
+        self.delegate = delegate
         if source_hash == None:
             self.frame = None
             display_widget = urwid.LineBox(urwid.Filler(urwid.Text("\n  No conversation selected"), "top"))
@@ -1057,7 +1057,6 @@ class ConversationWidget(urwid.WidgetWrap):
                 self.conversation = nomadnet.Conversation(source_hash, nomadnet.NomadNetworkApp.get_shared_instance())
                 self.message_widgets = []
                 self.sort_by_timestamp = False
-                self.updating_message_widgets = False
                 self.pending_attachments = []
                 self.dialog_active = False
 
@@ -1283,11 +1282,7 @@ class ConversationWidget(urwid.WidgetWrap):
             return super(ConversationWidget, self).keypress(size, key)
 
     def _on_conversation_changed_from_callback(self, conversation):
-        delegate = getattr(self, "delegate", None)
-        if delegate is not None and hasattr(delegate, "_wake"):
-            delegate._wake(lambda: self.conversation_changed(conversation))
-        else:
-            self.conversation_changed(conversation)
+        self.delegate._wake(lambda: self.conversation_changed(conversation))
 
     def conversation_changed(self, conversation):
         if hasattr(self, "peer_info_widget"):
@@ -1295,10 +1290,6 @@ class ConversationWidget(urwid.WidgetWrap):
         self.update_message_widgets(replace = True)
 
     def update_message_widgets(self, replace = False):
-        while self.updating_message_widgets:
-            time.sleep(0.5)
-
-        self.updating_message_widgets = True
         self.message_widgets = []
         added_hashes = []
         needs_index = []
@@ -1307,7 +1298,12 @@ class ConversationWidget(urwid.WidgetWrap):
             if not message_hash in added_hashes:
                 added_hashes.append(message_hash)
                 was_loaded = message.loaded
-                message_widget = LXMessageWidget(message, theme=self.app.config["textui"]["theme"])
+                try:
+                    message_widget = LXMessageWidget(message, theme=self.app.config["textui"]["theme"])
+                except Exception as e:
+                    RNS.log("Skipping message widget for "+str(message.file_path)+" due to error: "+str(e), RNS.LOG_DEBUG)
+                    message.unload()
+                    continue
                 self.message_widgets.append(message_widget)
                 if not was_loaded and message.loaded:
                     needs_index.append(message)
@@ -1331,8 +1327,6 @@ class ConversationWidget(urwid.WidgetWrap):
         if replace:
             self.frame.contents["body"] = (self.messagelist, None)
             nomadnet.NomadNetworkApp.get_shared_instance().ui.loop.draw_screen()
-
-        self.updating_message_widgets = False
 
 
     def clear_editor(self):
