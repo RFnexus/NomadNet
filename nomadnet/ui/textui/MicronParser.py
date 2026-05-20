@@ -1,6 +1,7 @@
 import nomadnet
 import urwid
 import random
+import re
 import time
 import RNS
 from urwid.util import is_mouse_press
@@ -57,10 +58,32 @@ def default_state(fg=None, bg=None):
         "align": "left",
         "default_fg": fg,
         "default_bg": bg,
+        "anchors": {},
+        "pending_anchors": [],
+        "header_rows": [],
     }
     return state
 
-def markup_to_attrmaps(markup, url_delegate = None, fg_color=None, bg_color=None, link_class=None):
+
+_MICRON_STRIP_RE = re.compile(
+    r"`[FB]T[0-9a-fA-F]{6}"
+    r"|`[FB][0-9a-fA-F]{3}"
+    r"|`:[A-Za-z0-9_\-]*"
+    r"|`[!*_=fbacrl`<>{]"
+)
+
+def slugify_micron(text):
+    if text is None: return ""
+    stripped = _MICRON_STRIP_RE.sub("", text)
+    s = re.sub(r"[^A-Za-z0-9]+", "-", stripped).strip("-").lower()
+    return s
+
+class _AttrMapList(list):
+    """list subclass that allows attaching parser metadata like `anchors`."""
+    pass
+
+
+def markup_to_attrmaps(markup, url_delegate = None, fg_color=None, bg_color=None, link_class=None, anchors=None):
     global LINK_CLASS
     if link_class: LINK_CLASS = link_class
     else: LINK_CLASS = LinkableText
@@ -71,13 +94,17 @@ def markup_to_attrmaps(markup, url_delegate = None, fg_color=None, bg_color=None
     else:
         SELECTED_STYLES = STYLES_LIGHT
 
-    attrmaps = []
+    attrmaps = _AttrMapList()
 
     fgc = None; bgc = DEFAULT_BG
     if bg_color != None: bgc = bg_color
     if fg_color != None: fgc = fg_color
 
     state = default_state(fgc, bgc)
+    if anchors is None:
+        anchors = state["anchors"]
+    else:
+        state["anchors"] = anchors
 
     # Split entire document into lines for
     # processing.
@@ -88,11 +115,29 @@ def markup_to_attrmaps(markup, url_delegate = None, fg_color=None, bg_color=None
             display_widgets = parse_line(line, state, url_delegate)
         else:
             display_widgets = [urwid.Text("")]
-        
+
         if display_widgets != None and len(display_widgets) != 0:
+            row_index = len(attrmaps)
+            pending = state.get("pending_anchors") or []
+            if pending:
+                for name in pending:
+                    if name and name not in anchors:
+                        anchors[name] = row_index
+                state["pending_anchors"] = []
+
+            if state.get("_header_pending"):
+                state["header_rows"].append(row_index)
+                state["_header_pending"] = False
+
             for display_widget in display_widgets:
                 attrmap = urwid.AttrMap(display_widget, make_style(state))
                 attrmaps.append(attrmap)
+
+    try:
+        setattr(attrmaps, "anchors", anchors)
+        setattr(attrmaps, "header_rows", list(state.get("header_rows", [])))
+    except Exception:
+        pass
 
     return attrmaps
 
@@ -239,7 +284,7 @@ def parse_line(line, state, url_delegate):
                 while i < len(line) and line[i] == ">":
                     i += 1
                     state["depth"] = i
-                
+
                     for j in range(1, i+1):
                         wanted_style = "heading"+str(i)
                         if wanted_style in SELECTED_STYLES:
@@ -252,8 +297,13 @@ def parse_line(line, state, url_delegate):
 
                     heading_style = make_style(state)
                     output = make_output(state, line, url_delegate)
-                    
+
                     style_to_state(latched_style, state)
+
+                    slug = slugify_micron(line)
+                    if slug:
+                        state.setdefault("pending_anchors", []).append(slug)
+                    state["_header_pending"] = True
 
                     if len(output) > 0:
                         first_style = output[0][0]
@@ -598,6 +648,18 @@ def make_output(state, line, url_delegate, pre_escape=False):
                         if state["align"] != "right": state["align"] = "right"
                     elif c == "a":
                         state["align"] = state["default_align"]
+
+                    elif c == ":":
+                        # Anchor declaration: `:anchor-name  (terminated by any non-name char). The anchor is a zero width position narker bound to the current line by markup_to_attrmaps
+                        name_start = i + 1
+                        name_end = name_start
+                        while name_end < len(line) and (line[name_end].isalnum() or line[name_end] in "_-"):
+                            name_end += 1
+                        anchor_name = line[name_start:name_end]
+                        if anchor_name:
+                            state.setdefault("pending_anchors", []).append(anchor_name)
+                        skip = (name_end - i) - 1
+                        if skip < 0: skip = 0
 
                     elif c == '<':
                         if len(part) > 0:

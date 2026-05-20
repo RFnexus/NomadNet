@@ -11,6 +11,7 @@ from LXMF import display_name_from_app_data
 class Conversation:
     cached_conversations = {}
     unread_conversations = {}
+    failed_conversations = {}
     created_callback = None
 
     aspect_filter = "lxmf.delivery"
@@ -59,7 +60,7 @@ class Conversation:
             source_hash = lxmessage.destination_hash
         else:
             source_hash = lxmessage.source_hash
-        
+
         source_hash_path = RNS.hexrep(source_hash, delimit=False)
 
         conversation_path = app.conversationpath + "/" + source_hash_path
@@ -80,17 +81,34 @@ class Conversation:
             conversation = Conversation.cached_conversations[RNS.hexrep(source_hash, delimit=False)]
             conversation.scan_storage()
 
-        if source_hash in Conversation.unread_conversations:
-            Conversation.unread_conversations[source_hash] += 1
-        else:
-            Conversation.unread_conversations[source_hash] = 1
+        lxm_state = getattr(lxmessage, "state", None)
+        is_failed = lxm_state in (LXMF.LXMessage.FAILED, LXMF.LXMessage.REJECTED)
 
-        try:
-            dirname = RNS.hexrep(source_hash, delimit=False)
-            with open(app.conversationpath + "/" + dirname + "/unread", "w") as uf:
-                uf.write(str(Conversation.unread_conversations[source_hash]))
-        except Exception as e:
-            pass
+        if not originator:
+            if source_hash in Conversation.unread_conversations:
+                Conversation.unread_conversations[source_hash] += 1
+            else:
+                Conversation.unread_conversations[source_hash] = 1
+
+            try:
+                dirname = RNS.hexrep(source_hash, delimit=False)
+                with open(app.conversationpath + "/" + dirname + "/unread", "w") as uf:
+                    uf.write(str(Conversation.unread_conversations[source_hash]))
+            except Exception:
+                pass
+
+        elif is_failed:
+            if source_hash in Conversation.failed_conversations:
+                Conversation.failed_conversations[source_hash] += 1
+            else:
+                Conversation.failed_conversations[source_hash] = 1
+
+            try:
+                dirname = RNS.hexrep(source_hash, delimit=False)
+                with open(app.conversationpath + "/" + dirname + "/failed", "w") as ff:
+                    ff.write(str(Conversation.failed_conversations[source_hash]))
+            except Exception:
+                pass
 
         if Conversation.created_callback != None:
             Conversation.created_callback()
@@ -120,6 +138,18 @@ class Conversation:
                             unread = 1
                         Conversation.unread_conversations[source_hash] = unread
 
+                    failed = 0
+                    if source_hash in Conversation.failed_conversations:
+                        failed = Conversation.failed_conversations[source_hash]
+                    elif os.path.isfile(app.conversationpath + "/" + dirname + "/failed"):
+                        try:
+                            with open(app.conversationpath + "/" + dirname + "/failed", "r") as ff:
+                                content = ff.read().strip()
+                                failed = int(content) if content else 1
+                        except Exception:
+                            failed = 1
+                        Conversation.failed_conversations[source_hash] = failed
+
                     if display_name == None and app_data:
                         display_name = LXMF.display_name_from_app_data(app_data)
 
@@ -127,7 +157,7 @@ class Conversation:
                         sort_name = ""
                     else:
                         sort_name = display_name
-                    
+
                     trust_level      = app.directory.trust_level(source_hash, display_name)
 
                     conversation_dir = app.conversationpath + "/" + dirname
@@ -136,7 +166,7 @@ class Conversation:
                     except Exception:
                         last_activity = 0
 
-                    entry = (source_hash_text, display_name, trust_level, sort_name, unread, last_activity)
+                    entry = (source_hash_text, display_name, trust_level, sort_name, unread, last_activity, failed)
                     conversations.append(entry)
 
                 except Exception as e:

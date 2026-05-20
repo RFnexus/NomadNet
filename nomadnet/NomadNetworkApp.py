@@ -546,6 +546,52 @@ class NomadNetworkApp:
         if self.message_router.propagation_transfer_state != LXMF.LXMRouter.PR_IDLE:
             self.message_router.cancel_propagation_node_requests()
 
+    def _persist_ignored_list(self):
+        try:
+            with open(self.ignoredpath, "wb") as fh:
+                for h in self.ignored_list:
+                    fh.write((RNS.hexrep(h, delimit=False)+"\n").encode("utf-8"))
+        except Exception as e:
+            RNS.log("Could not persist ignored list: "+str(e), RNS.LOG_ERROR)
+
+    def block_destination(self, dest_hash, reason=None):
+        if not isinstance(dest_hash, (bytes, bytearray)):
+            return False
+        dest_hash = bytes(dest_hash)
+        try:
+            identity = RNS.Identity.recall(dest_hash)
+            if identity is not None:
+                RNS.Transport.blackhole_identity(identity.hash, reason=reason)
+        except Exception as e:
+            RNS.log("Could not blackhole identity: "+str(e), RNS.LOG_ERROR)
+        if dest_hash not in self.ignored_list:
+            self.ignored_list.append(dest_hash)
+            self._persist_ignored_list()
+        try:
+            self.message_router.ignore_destination(dest_hash)
+        except Exception:
+            pass
+        return True
+
+    def unblock_destination(self, dest_hash):
+        if not isinstance(dest_hash, (bytes, bytearray)):
+            return False
+        dest_hash = bytes(dest_hash)
+        try:
+            identity = RNS.Identity.recall(dest_hash)
+            if identity is not None:
+                RNS.Transport.unblackhole_identity(identity.hash)
+        except Exception as e:
+            RNS.log("Could not lift blackhole on identity: "+str(e), RNS.LOG_ERROR)
+        if dest_hash in self.ignored_list:
+            self.ignored_list.remove(dest_hash)
+            self._persist_ignored_list()
+        try:
+            self.message_router.unignore_destination(dest_hash)
+        except Exception:
+            pass
+        return True
+
     def announce_now(self):
         RNS.log("Sending lxmf.delivery announce", RNS.LOG_VERBOSE)
         self.message_router.set_inbound_stamp_cost(self.lxmf_destination.hash, self.required_stamp_cost)
@@ -707,16 +753,24 @@ class NomadNetworkApp:
             return False
 
     def conversation_is_unread(self, source_hash):
-        if bytes.fromhex(source_hash) in nomadnet.Conversation.unread_conversations:
+        src_bytes = bytes.fromhex(source_hash)
+        if src_bytes in nomadnet.Conversation.unread_conversations:
             return True
-        else:
-            return False
+        if src_bytes in nomadnet.Conversation.failed_conversations:
+            return True
+        return False
 
     def mark_conversation_read(self, source_hash):
-        if bytes.fromhex(source_hash) in nomadnet.Conversation.unread_conversations:
-            nomadnet.Conversation.unread_conversations.pop(bytes.fromhex(source_hash))
+        src_bytes = bytes.fromhex(source_hash)
+        if src_bytes in nomadnet.Conversation.unread_conversations:
+            nomadnet.Conversation.unread_conversations.pop(src_bytes)
             if os.path.isfile(self.conversationpath + "/" + source_hash + "/unread"):
                 os.unlink(self.conversationpath + "/" + source_hash + "/unread")
+        if src_bytes in nomadnet.Conversation.failed_conversations:
+            nomadnet.Conversation.failed_conversations.pop(src_bytes)
+            if os.path.isfile(self.conversationpath + "/" + source_hash + "/failed"):
+                try: os.unlink(self.conversationpath + "/" + source_hash + "/failed")
+                except Exception: pass
 
     def notify_message_recieved(self):
         if self.uimode == nomadnet.ui.UI_TEXT:
