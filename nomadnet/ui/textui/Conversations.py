@@ -1301,7 +1301,7 @@ class ConversationWidget(urwid.WidgetWrap):
                 try:
                     message_widget = LXMessageWidget(message, theme=self.app.config["textui"]["theme"])
                 except Exception as e:
-                    RNS.log("Skipping message widget for "+str(message.file_path)+" due to error: "+str(e), RNS.LOG_DEBUG)
+                    RNS.log("Skipping message loading for "+str(message.file_path)+" due to error: "+str(e), RNS.LOG_WARNING)
                     message.unload()
                     continue
                 self.message_widgets.append(message_widget)
