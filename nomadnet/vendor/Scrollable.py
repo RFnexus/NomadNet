@@ -53,6 +53,7 @@ class Scrollable(urwid.WidgetDecoration):
         self._rows_max_cached = 0
         self.force_forward_keypress = force_forward_keypress
         self.force_cursor_update = False
+        self.anchor_cursor_update = False
         self.cursor_update_forced_at = 0
         super().__init__(widget)
 
@@ -108,9 +109,11 @@ class Scrollable(urwid.WidgetDecoration):
             # Trimmed canvas contains the cursor, e.g. in an Edit widget
             self._forward_keypress = True
         else:
-            force_check = self.force_cursor_update and (time.time()-self.cursor_update_forced_at < 0.25)
+            force_check  = self.force_cursor_update and (time.time()-self.cursor_update_forced_at < 0.25)
+            force_check |= self.anchor_cursor_update
             if canv_full.cursor is not None or force_check:
                 self.force_cursor_update = False
+                self.anchor_cursor_update = False
                 # Full canvas contains the cursor, but scrolled out of view
                 self._forward_keypress = False
                 

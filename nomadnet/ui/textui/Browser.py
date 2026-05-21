@@ -342,6 +342,7 @@ class Browser:
 
         try:
             scrollable = self.browser_body.original_widget.original_widget
+            scrollable.anchor_cursor_update = True
             scrollable.set_scrollpos(self._rows_above(int(target_idx), cols))
         except Exception as e:
             RNS.log("Anchor jump failed: "+str(e), RNS.LOG_ERROR)

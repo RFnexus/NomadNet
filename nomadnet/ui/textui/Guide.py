@@ -227,6 +227,7 @@ class GuideDisplay():
         pile = urwid.Pile(new_content)
         self._content_attrmaps = new_content
         self._content_scrollable = Scrollable(pile)
+        pile.automove_cursor_on_scroll = True
         content = urwid.LineBox(urwid.AttrMap(ScrollBar(self._content_scrollable, thumb_char="\u2503", trough_char=" "), "scrollbar"))
 
         self.columns.contents[1] = (content, options)
@@ -255,6 +256,8 @@ class GuideDisplay():
                 return
         row_offset = _rows_above(attrmaps, target_idx, cols)
         try:
+            scrollable.force_cursor_update = True
+            scrollable.anchor_cursor_update = True
             scrollable.set_scrollpos(int(row_offset))
         except Exception:
             pass
@@ -1346,19 +1349,19 @@ With micron you can easily create structured documents and pages with formatting
 
 >Table of Contents
 
- `F44f`_`[A Few Demo Outputs`#a-few-demo-outputs]`_`f
- `F44f`_`[Micron Tags`#micron-tags]`_`f
- `F44f`_`[High Level Stuff`#high-level-stuff]`_`f
- `F44f`_`[Colors`#colors]`_`f
- `F44f`_`[Page Foreground and Background Colors`#page-foreground-and-background-colors]`_`f
- `F44f`_`[Links`#links]`_`f
- `F44f`_`[Anchors`#anchors]`_`f
- `F44f`_`[Tables`#tables]`_`f
- `F44f`_`[Fields & Requests`#fields-requests]`_`f
- `F44f`_`[Comments`#comments]`_`f
- `F44f`_`[Partials`#partials]`_`f
- `F44f`_`[Literals`#literals]`_`f
- `F44f`_`[Closing Remarks`#closing-remarks]`_`f
+ `F79d`_`[A Few Demo Outputs`#a-few-demo-outputs]`_`f
+ `F79d`_`[Micron Tags`#micron-tags]`_`f
+ `F79d`_`[High Level Stuff`#high-level-stuff]`_`f
+ `F79d`_`[Colors`#colors]`_`f
+ `F79d`_`[Page Foreground and Background Colors`#page-foreground-and-background-colors]`_`f
+ `F79d`_`[Links`#links]`_`f
+ `F79d`_`[Anchors`#anchors]`_`f
+ `F79d`_`[Tables`#tables]`_`f
+ `F79d`_`[Fields & Requests`#fields-requests]`_`f
+ `F79d`_`[Comments`#comments]`_`f
+ `F79d`_`[Partials`#partials]`_`f
+ `F79d`_`[Literals`#literals]`_`f
+ `F79d`_`[Closing Remarks`#closing-remarks]`_`f
 
 >>Recommendations and Requirements
 
