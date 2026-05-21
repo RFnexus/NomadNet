@@ -192,9 +192,10 @@ class Browser:
             if can_display:
                 self.link_status_showing = True
                 lt_str = str(link_target)
-                lmax = 128
-                if len(lt_str) > lmax: lt_str = lt_str[:lmax]+"…"
-                self.browser_footer = urwid.AttrMap(urwid.Pile([urwid.Divider(self.g["divider1"]), urwid.Text("Link to "+lt_str)]), "browser_controls")
+                lmax = self._content_cols()
+                lstr = "Link to "+lt_str
+                if len(lstr) > lmax: lstr = lstr[:lmax-1]+"…"
+                self.browser_footer = urwid.AttrMap(urwid.Pile([urwid.Divider(self.g["divider1"]), urwid.Text(lstr)]), "browser_controls")
                 self.frame.contents["footer"] = (self.browser_footer, self.frame.options())
                 if self.page_background_color != None or self.page_foreground_color != None:
                     style_name = make_style(default_state(fg=self.page_foreground_color, bg=self.page_background_color))
@@ -499,8 +500,11 @@ class Browser:
         return urwid.AttrMap(widget, "browser_controls")
 
     def make_control_widget(self):
-        url_text = urwid.Text(self.g["node"]+" "+self.current_url())
+        lstr = self.g["node"]+" "+self.current_url()
         copy_glyph = self.g.get("copy", "[C]")
+        lmax = self._content_cols()-len(copy_glyph)-len(copy_glyph)-1
+        if len(lstr) > lmax: lstr = lstr[:lmax-1]+"…"
+        url_text = urwid.Text(lstr)
         copy_icon = ClickableIcon(copy_glyph, on_click=lambda: self.copy_url())
         copy_width = len(copy_glyph) + 2
         header_row = urwid.Columns([
