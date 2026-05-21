@@ -263,16 +263,13 @@ class GuideDisplay():
             pass
 
     def _content_cols(self):
-        try:
-            cols = self.app.ui.loop.screen.get_cols_rows()[0]
-        except Exception:
-            cols = 100
+        try: cols = self.app.ui.loop.screen.get_cols_rows()[0]
+        except Exception: cols = 100
+
         try:
             widths = self.columns.column_widths((cols,))
-            if len(widths) > 1 and widths[1] > 0:
-                return max(40, widths[1] - 3)
-        except Exception:
-            pass
+            if len(widths) > 1 and widths[1] > 0: return max(40, widths[1] - 3)
+        except Exception: pass
         return max(40, int(cols * (1 - GuideDisplay.list_width)) - 3)
 
     def shortcuts(self):

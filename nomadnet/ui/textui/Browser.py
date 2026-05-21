@@ -340,29 +340,37 @@ class Browser:
             if target_idx is None:
                 return
 
+        row_offset = self._rows_above(int(target_idx), cols)
+
         try:
             scrollable = self.browser_body.original_widget.original_widget
             scrollable.anchor_cursor_update = True
-            scrollable.set_scrollpos(self._rows_above(int(target_idx), cols))
-        except Exception as e:
-            RNS.log("Anchor jump failed: "+str(e), RNS.LOG_ERROR)
+            scrollable.set_scrollpos(row_offset)
+
+        except Exception as e: RNS.log("Anchor jump failed: "+str(e), RNS.LOG_ERROR)
 
     def _content_cols(self):
         try:
-            cols = self.app.ui.loop.screen.get_cols_rows()[0]
+            lw = self.delegate.given_list_width
+            screen_cols = self.app.ui.loop.screen.get_cols_rows()[0]
+            browser_cols = screen_cols-lw-2
+            cols = browser_cols
+
         except Exception:
+            RNS.log(f"Could not calculate browser width, anchors will be inaccurate: {e}", RNS.LOG_WARNING)
+            RNS.trace_exception(e)
             cols = 100
-        return max(40, cols - 3)
+
+        return max(40, cols)
 
     def _rows_above(self, index, cols):
-        if index <= 0 or not self.attr_maps:
-            return 0
+        if index <= 0 or not self.attr_maps: return 0
+
         total = 0
         for i in range(min(index, len(self.attr_maps))):
-            try:
-                total += self.attr_maps[i].rows((cols,))
-            except Exception:
-                total += 1
+            try: total += self.attr_maps[i].rows((cols,))
+            except Exception: total += 1
+
         return total
 
     def handle_lxmf_link(self, link_target):
