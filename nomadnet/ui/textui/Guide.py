@@ -74,17 +74,17 @@ def _rows_above(attrmaps, index, cols):
 
 class GuideColumns(urwid.Columns):
     def keypress(self, size, key):
-        if key == "up" and self.focus_position == 1:
-            disp = getattr(self, "guide_display", None)
-            if disp is not None:
-                scrollable = getattr(disp, "_content_scrollable", None)
-                if scrollable is not None:
-                    try:
-                        if scrollable.get_scrollpos() <= 0:
-                            nomadnet.NomadNetworkApp.get_shared_instance().ui.main_display.frame.focus_position = "header"
-                            return None
-                    except Exception:
-                        pass
+        # TODO: Scroll handling is currently very weird
+        # in the guide reader. When using page up/down
+        # or mouse scroll, the actual cursor position
+        # does not follow the scroll, as it does in the
+        # browser. If you scroll down, and then use the
+        # arrow keys, the position jumps back up to
+        # where you "left" the cursor.
+        # There's handling for this in the Browser code
+        # but I don't have time to port it over here at
+        # this point. If someone else takes that one up
+        # it's :) :) :)
         return super().keypress(size, key)
 
 
@@ -98,7 +98,7 @@ class GuideLinkDelegate:
         pass
 
     def micron_released_focus(self):
-        pass
+        self.reader.focus_topics()
 
     def handle_link(self, target, fields=None):
         if not target:
