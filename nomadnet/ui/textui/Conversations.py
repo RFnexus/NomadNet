@@ -814,10 +814,23 @@ class ConversationsDisplay():
         self.dialog_open = True
         item = self.ilb.get_selected_item()
         if item == None:
+            self.dialog_open = False
             return
-        source_hash_text = item.source_hash
-        display_name = self.ilb.get_selected_item().display_name
-        if display_name == None:
+        source_hash_text = getattr(item, "source_hash", None)
+        if source_hash_text is None:
+            blocked = getattr(item, "blocked_dest_hash", None)
+            if isinstance(blocked, (bytes, bytearray)):
+                source_hash_text = RNS.hexrep(blocked, delimit=False)
+        if source_hash_text is None:
+            self.dialog_open = False
+            return
+        display_name = getattr(item, "display_name", None)
+        if display_name is None:
+            try:
+                display_name = self.app.directory.display_name(bytes.fromhex(source_hash_text))
+            except Exception:
+                display_name = None
+        if display_name is None:
             display_name = ""
 
         e_id = urwid.Edit(caption="Addr : ",edit_text=source_hash_text)
@@ -877,8 +890,8 @@ class ConversationsDisplay():
         r_propagated = urwid.RadioButton(method_button_group, "Use propagation nodes", state=propagated_selected)
 
         def dismiss_dialog(sender):
-            self.update_conversation_list()
             self.dialog_open = False
+            self.update_conversation_list()
 
         def confirmed(sender):
             try:
@@ -899,8 +912,8 @@ class ConversationsDisplay():
                 entry = DirectoryEntry(source_hash, display_name, trust_level, preferred_delivery=delivery, sort_rank=sort_rank, notes=notes_value)
                 self.app.directory.remember(entry)
                 self._refresh_open_conversation_widget(source_hash_text)
-                self.update_conversation_list()
                 self.dialog_open = False
+                self.update_conversation_list()
                 self.app.ui.main_display.sub_displays.network_display.directory_change_callback()
             except Exception as e:
                 RNS.log("Could not save directory entry. The contained exception was: "+str(e), RNS.LOG_VERBOSE)

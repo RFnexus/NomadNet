@@ -141,12 +141,21 @@ class Browser:
     def current_url(self):
         if self.destination_hash == None:
             return ""
-        else:
-            if self.path == None:
-                path = ""
-            else:
-                path = self.path
-            return RNS.hexrep(self.destination_hash, delimit=False)+":"+path
+        path = "" if self.path == None else self.path
+        url = RNS.hexrep(self.destination_hash, delimit=False)+":"+path
+
+        if isinstance(self.request_data, dict) and self.request_data:
+            parts = []
+            for k, v in self.request_data.items():
+                if not isinstance(k, str):
+                    continue
+                if not k.startswith("var_"):
+                    continue
+                parts.append(k[4:]+"="+str(v))
+            if parts:
+                url += "`" + "|".join(parts)
+
+        return url
 
     def url_hash(self, url):
         if url == None:

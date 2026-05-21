@@ -72,6 +72,22 @@ def _rows_above(attrmaps, index, cols):
     return total
 
 
+class GuideColumns(urwid.Columns):
+    def keypress(self, size, key):
+        if key == "up" and self.focus_position == 1:
+            disp = getattr(self, "guide_display", None)
+            if disp is not None:
+                scrollable = getattr(disp, "_content_scrollable", None)
+                if scrollable is not None:
+                    try:
+                        if scrollable.get_scrollpos() <= 0:
+                            nomadnet.NomadNetworkApp.get_shared_instance().ui.main_display.frame.focus_position = "header"
+                            return None
+                    except Exception:
+                        pass
+        return super().keypress(size, key)
+
+
 class GuideLinkDelegate:
     def __init__(self, app, reader=None):
         self.app = app
@@ -190,13 +206,14 @@ class GuideDisplay():
         self.right_area = urwid.LineBox(urwid.Filler(topic_text, urwid.TOP))
 
 
-        self.columns = urwid.Columns(
+        self.columns = GuideColumns(
             [
                 (urwid.WEIGHT, GuideDisplay.list_width, self.left_area),
                 (urwid.WEIGHT, 1-GuideDisplay.list_width, self.right_area)
             ],
             dividechars=0, focus_column=0
         )
+        self.columns.guide_display = self
 
         self.shortcuts_display = GuideDisplayShortcuts(self.app)
         self.widget = self.columns
