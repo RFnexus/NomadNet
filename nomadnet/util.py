@@ -182,4 +182,7 @@ def strip_non_formatting_tags(text):
     text = re.sub(r'`<', '', text)
     text = re.sub(r'`>', '', text)
     text = re.sub(r'`{', '', text)
+    text = re.sub(r'`r', '', text)
+    text = re.sub(r'`c', '', text)
+    text = re.sub(r'`l', '', text)
     return text
