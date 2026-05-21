@@ -1204,6 +1204,7 @@ def get_nick_color(sender_hash, theme, app, shift=15):
     return nick_colors[(int.from_bytes(sender_hash)+shift)%len(nick_colors)]
 
 room_nick_src_cache = {}
+invalid_span_starts = [">", "#"]
 mdc = MarkdownToMicron(max_width=80, syntax_highlighter=SyntaxHighlighter(), url_scope=None)
 def _message_widget(app, hub, m, link_delegate=None):
     t = theme_dark if app.config["textui"]["theme"] == nomadnet.ui.TextUI.THEME_DARK else theme_light
@@ -1279,14 +1280,25 @@ def _message_widget(app, hub, m, link_delegate=None):
             link_md = f"[{label}]({url})"
             message_body += link_mu
         else:
+            # This is a hack for now to avoid start-of-span
+            # being interpreted as start-of-line by the micron
+            # parser, because the link-detection logic splits
+            # up lines into spans for link detection. Since
+            # We're now using the micron engine, we could
+            # probably avoid this alltogether. But it needs
+            # another kind of link handling, and I'm not going
+            # to write that right now, so little hack it is.
+            if mb[0:1] in invalid_span_starts: yanked = mb[0:1]; mb = mb[1:]
+            else:                              yanked = ""
+
             if app.rrc_ui_render_micron:
                 mbo = mdc.format_block(mb) if app.rrc_ui_render_markdown else mb
                 mbo = unescape_micron(mbo)
-                message_body += strip_non_formatting_tags(mbo)
+                message_body += yanked+strip_non_formatting_tags(mbo)
 
             else:
                 mbo = mdc.format_block(strip_escaped_micron(mb)) if app.rrc_ui_render_markdown else strip_escaped_micron(mb)
-                message_body += strip_non_formatting_tags(mbo)
+                message_body += yanked+strip_non_formatting_tags(mbo)
 
     if app.rrc_nick_colors: nick_attr = f"`FT{get_nick_color(m.src, t, app)}"
     else:                   nick_attr = f"`F{t['nick_self']}" if own else f"`F{t['nick_peer']}"
