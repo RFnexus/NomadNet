@@ -1811,5 +1811,8 @@ class UrlEdit(urwid.Edit):
     def keypress(self, size, key):
         if key == "enter":
             self.confirmed(self)
+        elif key == "ctrl k":
+            self.set_edit_text("")
+            self.set_edit_pos(0)
         else:
             return super(UrlEdit, self).keypress(size, key)
