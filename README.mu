@@ -22,7 +22,8 @@ If you'd rather want to use an LXMF client with a graphical user interface, you 
  - Page caching in browser
 
 >> How do I get started?
-The easiest way to install Nomad Network is via pip:
+
+The easiest way to install Nomad Network is via `B333pip`b:
 
 `B333
 `=
