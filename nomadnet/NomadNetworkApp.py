@@ -162,6 +162,7 @@ class NomadNetworkApp:
         self.rrc_ui_space_msgs = False
         self.rrc_ui_render_markdown = True
         self.rrc_ui_render_micron = True
+        self.rrc_show_gutters = False
 
         if not os.path.isdir(self.storagepath):
             os.makedirs(self.storagepath)
@@ -1028,6 +1029,11 @@ class NomadNetworkApp:
                     try: value = self.config["rrc"].as_bool(option)
                     except Exception: value = True
                     self.rrc_ui_render_micron = value
+                
+                if option == "show_gutters":
+                    try: value = self.config["rrc"].as_bool(option)
+                    except Exception: value = False
+                    self.rrc_show_gutters = value
 
         if "node" in self.config:
             if not "enable_node" in self.config["node"]:
@@ -1374,6 +1380,7 @@ render_micron = yes
 nick_colors = yes
 justify_msgs = yes
 space_msgs = no
+show_gutters = yes
 
 # You can configure your own color theme
 # for nick color assignment

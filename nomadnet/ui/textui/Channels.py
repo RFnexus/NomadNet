@@ -551,6 +551,7 @@ class RoomWidget(urwid.WidgetWrap):
         self.users_box = UsersBox(self.users_listbox, title="Users")
         self.users_box.delegate = self
         self.users_gutter = UsersExpandGutter(self.app, self)
+        self.show_gutters = self.app.rrc_show_gutters
         self._refresh_users_pane()
 
         self.users_visible = self.display.users_visible
@@ -570,10 +571,16 @@ class RoomWidget(urwid.WidgetWrap):
                 (self.users_box, self.columns.options(urwid.GIVEN, RoomWidget.USERS_PANE_WIDTH)),
             ]
         else:
-            self.columns.contents = [
-                (self.chat_box,     self.columns.options(urwid.WEIGHT, 1)),
-                (self.users_gutter, self.columns.options(urwid.GIVEN, 1)),
-            ]
+            if self.show_gutters:
+                self.columns.contents = [
+                    (self.chat_box,     self.columns.options(urwid.WEIGHT, 1)),
+                    (self.users_gutter, self.columns.options(urwid.GIVEN, 1)),
+                ]
+            else:
+                self.columns.contents = [
+                    (self.chat_box,     self.columns.options(urwid.WEIGHT, 1))
+                ]
+
         self.columns.focus_position = 0
 
     def _refresh_users_pane(self):
@@ -1263,6 +1270,7 @@ class ChannelsDisplay():
 
         self._build_listbox()
         self.gutter = ChannelsExpandGutter(self.app, self)
+        self.show_gutters = self.app.rrc_show_gutters
 
         self.list_shortcuts = ChannelsListShortcuts(self.app)
         self.room_shortcuts = ChannelsRoomShortcuts(self.app)
@@ -1323,10 +1331,15 @@ class ChannelsDisplay():
                 try: self.columns_widget.focus_position = 1
                 except Exception: pass
         else:
-            self.columns_widget.contents = [
-                (self.gutter, gutter_opts),
-                (self.right,  right_opts),
-            ]
+            if self.show_gutters:
+                self.columns_widget.contents = [
+                    (self.gutter, gutter_opts),
+                    (self.right,  right_opts),
+                ]
+            else:
+                self.columns_widget.contents = [
+                    (self.right,  right_opts),
+                ]
             try: self.columns_widget.focus_position = 1
             except Exception: pass
 
