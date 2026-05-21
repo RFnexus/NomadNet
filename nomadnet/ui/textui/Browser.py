@@ -1460,6 +1460,9 @@ class Browser:
                 RNS.log("Received page "+str(self.current_url())+", caching for %.3f hours." % (cache_time/60/60), RNS.LOG_DEBUG)    
                 self.cache_page(cache_time)
 
+            if self.request_data and "var_anchor" in self.request_data:
+                self._jump_to_anchor(self.request_data["var_anchor"])
+
         except Exception as e:
             RNS.log("An error occurred while handling response. The contained exception was: "+str(e))
 
