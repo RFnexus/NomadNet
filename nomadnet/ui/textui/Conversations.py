@@ -63,7 +63,7 @@ class ConversationListDisplayShortcuts():
     def __init__(self, app):
         self.app = app
 
-        self.widget = urwid.AttrMap(urwid.Text("[C-e] Peer Info  [C-x] Delete  [C-r] Sync  [C-n] New  [C-u] Ingest URI  [C-o] Sort  [C-q] My LXMF  [C-g] Fullscreen"), "shortcutbar")
+        self.widget = urwid.AttrMap(urwid.Text("[C-e] Peer Info  [C-x] Delete  [C-r] Sync  [C-n] New  [C-u] Ingest URI  [C-o] Sort  [C-p] My LXMF  [C-g] Fullscreen"), "shortcutbar")
 
 class ConversationDisplayShortcuts():
     def __init__(self, app):
