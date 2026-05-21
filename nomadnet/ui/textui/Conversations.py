@@ -92,7 +92,7 @@ class ConversationsArea(urwid.LineBox):
             self.delegate.toggle_fullscreen()
         elif key == "ctrl o":
             self.delegate.toggle_list_sort()
-        elif key == "ctrl q":
+        elif key == "ctrl p":
             self.delegate.show_my_qr()
         elif key == "tab":
             self.delegate.app.ui.main_display.frame.focus_position = "header"
@@ -1620,7 +1620,7 @@ class ConversationsDisplay():
             focus_style   = "list_focus"
         elif trust_level == DirectoryEntry.TRUSTED:
             symbol        = g["check"]
-            style         = "body_text"
+            style         = "list_normal"
             focus_style   = "list_focus"
         elif trust_level == DirectoryEntry.WARNING:
             symbol        = g["warning"]
@@ -1651,10 +1651,20 @@ class ConversationsDisplay():
         markup = [head]
         if failed and source_hash != self.currently_displayed_conversation:
             badge_text = " "+g["warning"]+" ("+str(failed)+")"
-            markup.append(("msg_header_caution", badge_text))
+            # markup.append(("msg_notice_caution", badge_text))
+            markup.append(badge_text)
         elif unread and source_hash != self.currently_displayed_conversation:
             badge_text = " "+g["unread"]+" ("+str(unread)+")"
-            markup.append(("msg_header_delivered", badge_text))
+            # Good idea with having the badges here colored, but
+            # using the bg color for it is a bit much, I think.
+            # I set fg color attrmap styles, but that messes up
+            # the bg on list focus. If there's a way to handle
+            # that, we can re-enable this.
+            # markup.append(("msg_notice_unread", badge_text))
+            markup.append(badge_text)
+
+        if trust_level == DirectoryEntry.TRUSTED and unread and source_hash != self.currently_displayed_conversation:
+            style = "msg_notice_unread"
 
         if last_activity > 0:
             markup.append("\n  "+relative_time(last_activity))
