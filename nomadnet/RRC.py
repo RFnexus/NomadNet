@@ -773,9 +773,9 @@ class RRCHub:
                     self.unread_rooms.add(msg.room)
                     if msg.mention:
                         self.mention_rooms.add(msg.room)
+            self.manager._notify_messages(self, msg)
         self._append_history(msg.room, msg)
         self._clean_history()
-        self.manager._notify_messages(self, msg)
 
     def _record_system(self, room, text):
         if not room:
@@ -787,9 +787,9 @@ class RRCHub:
             buf.append(msg)
             if cap is not None and len(buf) > cap:
                 del buf[:len(buf)-cap]
+            self.manager._notify_messages(self, msg)
         self._append_history(room, msg)
         self._clean_history()
-        self.manager._notify_messages(self, msg)
 
     def _record_notice(self, msg):
         target_room = msg.room
@@ -810,10 +810,10 @@ class RRCHub:
                     del buf[:len(buf)-cap]
                 if target_room != self.manager.active_room_for(self):
                     self.unread_rooms.add(target_room)
+            self.manager._notify_messages(self, msg)
         if target_room:
             self._append_history(target_room, msg)
             self._clean_history()
-        self.manager._notify_messages(self, msg)
 
     def get_messages(self, room):
         with self._lock:
