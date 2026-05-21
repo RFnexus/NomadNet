@@ -119,4 +119,4 @@ For this to be possible, I need your help. Please support the continued developm
 
 >> Caveat Emptor
 
-Nomad Network is experimental software, and should be considered as such. While it has been built with cryptography best-practices very foremost in mind, it _has not_ been externally security audited, and there could very well be privacy-breaking bugs. If you want to help out, or help sponsor an audit, please do get in touch.
+Nomad Network is experimental software, and should be considered as such. While it has been built with cryptography best-practices very foremost in mind, it `!has not`! been externally security audited, and there could very well be privacy-breaking bugs. Use at your own risk and responsibility.
