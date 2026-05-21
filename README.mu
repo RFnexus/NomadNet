@@ -12,14 +12,15 @@ If you'd rather want to use an LXMF client with a graphical user interface, you 
 
 >> Notable Features
 
- - Encrypted messaging over packet-radio, LoRa, WiFi or anything else `_`!`[Reticulum`a8d24177d946de4f1f0a0fe1af9a1338:/page/repo.mu`g=reticulum|r=reticulum]`!`_ supports.
- - Zero-configuration, minimal-infrastructure mesh communication
- - Distributed and encrypted message store holds messages for offline users
- - Connectable nodes that can host pages and files
- - Node-side generated pages with PHP, Python, bash or others
- - Built-in text-based browser for interacting with contents on nodes
- - An easy to use and bandwidth efficient markup language for writing pages
- - Page caching in browser
+ • Encrypted messaging over packet-radio, LoRa, WiFi or anything else `_`!`[Reticulum`a8d24177d946de4f1f0a0fe1af9a1338:/page/repo.mu`g=reticulum|r=reticulum]`!`_ supports.
+ • Zero-configuration, minimal-infrastructure mesh communication
+ • Distributed and encrypted message store holds messages for offline users
+ • Connectable nodes that can host pages and files
+ • Node-side generated pages with PHP, Python, bash or others
+ • Built-in text-based browser for interacting with contents on nodes
+ • Built-in RRC client for live, many-to-many chat
+ • An easy to use and bandwidth efficient markup language for writing pages
+ • Page caching in browser
 
 >> How do I get started?
 
@@ -82,8 +83,8 @@ To use Nomad Network on packet radio or LoRa, you will need to configure your Re
 
 If you want to try Nomad Network without building your own physical network, you can connect to the `_`!`[distributed RNS backbone`a8d24177d946de4f1f0a0fe1af9a1338:/page/blob.mu`g=reticulum|r=reticulum|ref=HEAD|path=docs/markdown/gettingstartedfast.md|anchor=connect-to-the-distributed-backbone]`!`_ over the Internet, where there is already quite a bit of Nomad Network and LXMF activity. If you connect to the testnet, you can leave nomadnet running for a while and wait for it to receive announces from other nodes on the network that host pages or services, or you can try connecting directly to some nodes listed here:
 
- - `!`_`[ce92808be498e9e05590ff27cbfdfe4]`_`! The rns.recipes forum
- - `!`_`[`B333a4a5e861626ce97c9aa544d9ecdf6d22]`_`! rmap.world
+ • `!`_`[9ce92808be498e9e05590ff27cbfdfe4]`_`! The rns.recipes forum
+ • `!`_`[a4a5e861626ce97c9aa544d9ecdf6d22]`_`! rmap.world
 
 To browse pages on a node that is not currently known, open the URL dialog in the `!Network`! section of the program by pressing `!Ctrl+U`!, paste or enter the address and select `!Go`! or press enter. Nomadnet will attempt to discover and connect to the requested node.
 
@@ -98,6 +99,7 @@ For a native Android application with a graphical user interface, have a look at
 For help requests, discussion, sharing ideas or anything else related to Nomad Network, please have a look at the `_`!`[rns.recipes forum`9ce92808be498e9e05590ff27cbfdfe4]`!`_.
 
 >> Support Nomad Network
+
 For this to be possible, I need your help. Please support the continued development of open, free and private communications systems by donating via one of the following channels:
 
 • `!Monero`!
