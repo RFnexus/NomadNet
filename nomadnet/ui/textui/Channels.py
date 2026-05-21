@@ -604,8 +604,9 @@ class RoomWidget(urwid.WidgetWrap):
         entries = []
         for m in members:
             safe_name = _safe_name(self.hub.display_name_for(m))
+            full_name = safe_name
             safe_name = safe_name[:15]+"…" if len(safe_name) > 16 else safe_name
-            entries.append((safe_name, m, own_hash is not None and m == own_hash))
+            entries.append((safe_name, m, own_hash is not None and m == own_hash, full_name))
         entries.sort(key=lambda x: x[0].lower())
 
         prev_focus_key = None
@@ -617,7 +618,7 @@ class RoomWidget(urwid.WidgetWrap):
             prev_focus_key = None
 
         rows = [urwid.Text(" "+str(len(entries))+" user"+("s" if len(entries) != 1 else ""))]
-        for name, peer_hash, is_self in entries:
+        for name, peer_hash, is_self, full_name in entries:
             if self.app.rrc_nick_colors:
                 style_state = default_state()
                 style_state["fg_color"] = get_nick_color(peer_hash, self.theme, self.app)
@@ -636,7 +637,7 @@ class RoomWidget(urwid.WidgetWrap):
                     label = " "+g["peer"]+" "+name
                     style = "connected_status"
             entry = ChannelListEntry(label)
-            urwid.connect_signal(entry, "click", self.display.show_user_info, (self.hub, peer_hash, name))
+            urwid.connect_signal(entry, "click", self.display.show_user_info, (self.hub, peer_hash, full_name))
             row = urwid.AttrMap(entry, style, "list_focus")
             row.user_hash = peer_hash
             rows.append(row)
