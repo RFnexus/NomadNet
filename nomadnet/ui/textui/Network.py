@@ -1339,7 +1339,7 @@ class LocalPeer(urwid.WidgetWrap):
                     (urwid.WEIGHT, 0.45, urwid.Button("Save", on_press=save_query)),
                     (urwid.WEIGHT, 0.1, urwid.Text("")),
                     (urwid.WEIGHT, 0.45, urwid.Button("Node Info", on_press=node_info_query)),
-                ])
+                ]),
             ]
         )
 
