@@ -1178,6 +1178,7 @@ def _message_widget(app, hub, m, link_delegate=None):
     if m.kind == "system":
         evt_icon = g["arrow_l"] if m.text.endswith(" left") else g["arrow_r"]
         spans, has_links = _body_markup(m.text or "", body_attr="irc_system", own_nick=own_nick)
+        if m.text.endswith(" left") or m.text.endswith(" joined"): spans = [(s[0], sanitize_name(s[1])) for s in spans]
         markup = [_ts_prefix(m.ts), ("irc_system", evt_icon+" ")] + spans
         final_widget = _wrap_text(markup, link_delegate if has_links else None)
         final_widget.msg = m
