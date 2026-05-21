@@ -1103,7 +1103,16 @@ class _ChatLinkDelegate:
             except Exception:
                 pass
         conversations = self.app.ui.main_display.sub_displays.conversations_display
-        conversations.update_conversation_list()
+        try:
+            trust_level = self.app.directory.trust_level(bytes.fromhex(hash_hex))
+        except Exception:
+            trust_level = DirectoryEntry.UNKNOWN
+        target_filter = (conversations.LIST_FILTER_TRUSTED if trust_level == DirectoryEntry.TRUSTED
+                         else conversations.LIST_FILTER_UNTRUSTED)
+        if conversations.list_filter != target_filter:
+            conversations._set_filter(target_filter)
+        else:
+            conversations.update_conversation_list()
         conversations.display_conversation(None, hash_hex)
         self.app.ui.main_display.show_conversations(None)
 
