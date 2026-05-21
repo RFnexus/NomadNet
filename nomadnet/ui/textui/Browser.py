@@ -14,6 +14,7 @@ from nomadnet.Directory import DirectoryEntry
 from nomadnet.vendor.Scrollable import *
 from nomadnet.util import strip_modifiers
 from nomadnet.util import sanitize_name
+from .Helpers import ClickableIcon, osc52_copy
 
 class BrowserFrame(urwid.Frame):
     def keypress(self, size, key):
@@ -33,6 +34,8 @@ class BrowserFrame(urwid.Frame):
             self.delegate.save_node_dialog()
         elif key == "ctrl g":
             nomadnet.NomadNetworkApp.get_shared_instance().ui.main_display.sub_displays.network_display.toggle_fullscreen()
+        elif key == "ctrl y":
+            self.delegate.copy_url()
         elif self.focus_position == "body":
             if key == "down" or key == "up":
                 try:
@@ -496,7 +499,15 @@ class Browser:
         return urwid.AttrMap(widget, "browser_controls")
 
     def make_control_widget(self):
-        return urwid.AttrMap(urwid.Pile([urwid.Text(self.g["node"]+" "+self.current_url()), urwid.Divider(self.g["divider1"])]), "browser_controls")
+        url_text = urwid.Text(self.g["node"]+" "+self.current_url())
+        copy_glyph = self.g.get("copy", "[C]")
+        copy_icon = ClickableIcon(copy_glyph, on_click=lambda: self.copy_url())
+        copy_width = len(copy_glyph) + 2
+        header_row = urwid.Columns([
+            ("weight", 1, url_text),
+            (copy_width, urwid.Padding(copy_icon, left=1, right=1)),
+        ])
+        return urwid.AttrMap(urwid.Pile([header_row, urwid.Divider(self.g["divider1"])]), "browser_controls")
 
     def make_request_failed_widget(self):
         def back_action(sender):
@@ -1075,6 +1086,34 @@ class Browser:
             self.uncache_page(self.current_url())
             self.load_page()
 
+    def copy_url(self):
+        url = self.current_url()
+        if not url:
+            return
+
+        if not osc52_copy(url):
+            return
+
+        try:
+            notice = urwid.AttrMap(urwid.Pile([urwid.Divider(self.g["divider1"]), urwid.Text("Copied URL to clipboard")]), "browser_controls")
+            if self.page_background_color != None or self.page_foreground_color != None:
+                style_name = make_style(default_state(fg=self.page_foreground_color, bg=self.page_background_color))
+                notice.set_attr_map({None: style_name})
+            self.browser_footer = notice
+            self.frame.contents["footer"] = (self.browser_footer, self.frame.options())
+
+            def restore_footer(loop, user_data):
+                if self.status == Browser.DONE:
+                    self.browser_footer = self.make_status_widget()
+                else:
+                    self.browser_footer = urwid.Text("")
+                if self.frame is not None:
+                    self.frame.contents["footer"] = (self.browser_footer, self.frame.options())
+
+            self.app.ui.loop.set_alarm_in(2.0, restore_footer)
+        except Exception as e:
+            RNS.log("Could not update footer after URL copy: "+str(e), RNS.LOG_ERROR)
+
     def close_dialogs(self):
         options = self.delegate.columns.options(urwid.WEIGHT, self.delegate.right_area_width)
         self.delegate.columns.contents[1] = (self.display_widget, options)
@@ -1090,7 +1129,7 @@ class Browser:
                 entered_url = e_url.get_edit_text().strip()
                 if not "`" in entered_url and ":" in entered_url:
                     pos = entered_url.find("|")
-                    if pos: entered_url = entered_url[:pos]+"`"+entered_url[pos+1:]
+                    if pos > 0: entered_url = entered_url[:pos]+"`"+entered_url[pos+1:]
                 self.retrieve_url(entered_url)
             except Exception as e:
                 self.browser_footer = urwid.Text("Could not open link: "+str(e))
@@ -1780,5 +1819,8 @@ class UrlEdit(urwid.Edit):
     def keypress(self, size, key):
         if key == "enter":
             self.confirmed(self)
+        elif key == "ctrl k":
+            self.set_edit_text("")
+            self.set_edit_pos(0)
         else:
             return super(UrlEdit, self).keypress(size, key)

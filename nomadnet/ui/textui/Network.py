@@ -16,7 +16,7 @@ class NetworkDisplayShortcuts():
         self.app = app
         g = app.ui.glyphs
 
-        self.widget = urwid.AttrMap(urwid.Text("[C-l] Nodes/Announces  [C-x] Remove  [C-w] Disconnect  [C-d] Back  [C-f] Forward  [C-r] Reload  [C-u] URL  [C-g] Fullscreen  [C-s / C-b] Save Node"), "shortcutbar")
+        self.widget = urwid.AttrMap(urwid.Text("[C-l] Nodes/Announces  [C-x] Remove  [C-w] Disconnect  [C-d] Back  [C-f] Forward  [C-r] Reload  [C-u] URL  [C-y] Copy  [C-g] Fullscreen  [C-s / C-b] Save Node"), "shortcutbar")
 
 class DialogLineBox(urwid.LineBox):
     def keypress(self, size, key):
