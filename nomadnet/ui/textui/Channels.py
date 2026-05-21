@@ -514,6 +514,43 @@ class RoomFrame(urwid.Frame):
             return super(RoomFrame, self).keypress(size, key)
 
 
+class _StickyMessageListBox(IndicativeListBox):
+    # Tracks whether the user is scrolled to the bottom and re-asserts that
+    # position on resize. urwid.ListBox stores an inset computed at the prior
+    # size, so without re-asserting, the focused widget can render only partly
+    # visible at narrower widths.
+    def __init__(self, body, **kwargs):
+        self.sticky_bottom = True
+        self._last_render_size = None
+        super().__init__(body, on_selection_change=self._track_sticky, **kwargs)
+
+    def _track_sticky(self, old_pos, new_pos):
+        if new_pos is None:
+            self.sticky_bottom = True
+        else:
+            try:
+                self.sticky_bottom = (new_pos == self.rearmost_position())
+            except Exception:
+                pass
+
+    def render(self, size, focus=False):
+        if (self._last_render_size is not None
+                and self._last_render_size != size
+                and self.sticky_bottom):
+            try:
+                inner_body = self._listbox.body
+                if len(inner_body) > 0:
+                    self._listbox.set_focus(len(inner_body)-1)
+                    self._listbox.set_focus_valign("bottom")
+            except Exception:
+                pass
+        self._last_render_size = size
+        canvas = super().render(size, focus=focus)
+        if getattr(self, "bottom_is_visible", False):
+            self.sticky_bottom = True
+        return canvas
+
+
 class RoomWidget(urwid.WidgetWrap):
     USERS_PANE_WIDTH = 22
 
@@ -708,7 +745,7 @@ class RoomWidget(urwid.WidgetWrap):
         else:
             self._empty_placeholder = False
 
-        self.messagelist = IndicativeListBox(widgets, position=len(widgets)-1)
+        self.messagelist = _StickyMessageListBox(widgets, position=len(widgets)-1)
         self.messagelist.name = "messagelist"
         try:
             self.messagelist._listbox.set_focus_valign("bottom")
@@ -727,11 +764,13 @@ class RoomWidget(urwid.WidgetWrap):
             widget = _message_widget(self.app, self.hub, msg, link_delegate=self.link_delegate)
             wrapped = urwid.AttrMap(widget, None)
             body = self.messagelist.get_body()
-            was_at_bottom = getattr(self, "_empty_placeholder", False) or getattr(self.messagelist, "bottom_is_visible", True)
+            was_at_bottom = (self.messagelist.sticky_bottom
+                             or getattr(self.messagelist, "bottom_is_visible", True))
+            self.messagelist.sticky_bottom = was_at_bottom
             if getattr(self, "_empty_placeholder", False):
                 del body[:]
                 self._empty_placeholder = False
-            
+
             if self.hub.clean_last_removed > self.last_history_clean:
                 try:
                     hub_msgs = self.hub.get_messages(self.room) if (self.hub is not None and self.room is not None) else []
@@ -748,7 +787,7 @@ class RoomWidget(urwid.WidgetWrap):
                         if msg and not msg in hub_msgs: old.add(i)
 
                     for i in reversed(list(old)): self.messagelist.delete_position(i)
-                        
+
                 except Exception as e:
                     RNS.log("Error while cleaning room history", RNS.LOG_ERROR)
                     RNS.trace_exception(e)
@@ -778,6 +817,7 @@ class RoomWidget(urwid.WidgetWrap):
             if len(body) > 0:
                 self.messagelist._listbox.set_focus(len(body)-1)
                 self.messagelist._listbox.set_focus_valign("bottom")
+                self.messagelist.sticky_bottom = True
         except Exception:
             pass
 
@@ -785,6 +825,7 @@ class RoomWidget(urwid.WidgetWrap):
         text = self.editor.get_edit_text()
         if not text.strip():
             return
+        self.messagelist.sticky_bottom = True
         if text.lstrip().startswith("/"):
             self._handle_slash_command(text.lstrip())
             self.editor.set_edit_text("")
@@ -825,6 +866,7 @@ class RoomWidget(urwid.WidgetWrap):
 
         def send_split(sender):
             try:
+                self.messagelist.sticky_bottom = True
                 for p in parts:
                     self.hub.send_message(self.room, p)
                 self.editor.set_edit_text("")
@@ -1263,7 +1305,7 @@ def _message_widget(app, hub, m, link_delegate=None):
         rendered = _render_body(f"{prefix_micron}{nick_micron}{message_body}", link_delegate=ld, fg=t["text"])
         if app.rrc_ui_space_msgs: rendered.append(urwid.Text(""))
         final_widget = urwid.Padding(urwid.Pile(rendered), left=1)
-    
+
     final_widget.msg = m
     return final_widget
 
