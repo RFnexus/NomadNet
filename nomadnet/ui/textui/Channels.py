@@ -12,7 +12,7 @@ from nomadnet.vendor.additional_urwid_widgets import IndicativeListBox
 from nomadnet.ui.textui.MicronParser import LinkableText, LinkSpec
 from RNS.Utilities.rngit.util import MarkdownToMicron
 from RNS.Utilities.rngit.highlight import SyntaxHighlighter
-from .MicronParser import markup_to_attrmaps
+from .MicronParser import markup_to_attrmaps, default_state, make_style
 from nomadnet.util import sanitize_name, strip_modifiers, strip_micron
 from nomadnet.util import strip_escaped_micron, unescape_micron, strip_non_formatting_tags
 from nomadnet.vendor.Scrollable import Scrollable, ScrollBar
@@ -522,6 +522,7 @@ class RoomWidget(urwid.WidgetWrap):
         self.hub = hub
         self.room = room
         self.app = nomadnet.NomadNetworkApp.get_shared_instance()
+        self.theme = theme_dark if self.app.config["textui"]["theme"] == nomadnet.ui.TextUI.THEME_DARK else theme_light
 
         self.messagelist = None
         self.last_history_clean = 0
@@ -617,12 +618,23 @@ class RoomWidget(urwid.WidgetWrap):
 
         rows = [urwid.Text(" "+str(len(entries))+" user"+("s" if len(entries) != 1 else ""))]
         for name, peer_hash, is_self in entries:
-            if is_self:
-                label = " "+g["arrow_r"]+" "+name
-                style = "list_trusted"
+            if self.app.rrc_nick_colors:
+                style_state = default_state()
+                style_state["fg_color"] = get_nick_color(peer_hash, self.theme, self.app)
+                if is_self:
+                    label = " "+g["arrow_r"]+" "+name
+                    style = make_style(style_state)
+                else:
+                    label = " "+g["peer"]+" "+name
+                    style = make_style(style_state)
+
             else:
-                label = " "+g["peer"]+" "+name
-                style = "connected_status"
+                if is_self:
+                    label = " "+g["arrow_r"]+" "+name
+                    style = "list_trusted"
+                else:
+                    label = " "+g["peer"]+" "+name
+                    style = "connected_status"
             entry = ChannelListEntry(label)
             urwid.connect_signal(entry, "click", self.display.show_user_info, (self.hub, peer_hash, name))
             row = urwid.AttrMap(entry, style, "list_focus")
