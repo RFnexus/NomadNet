@@ -558,8 +558,8 @@ class ConversationsDisplay():
         source_hash = item.source_hash
 
         def dismiss_dialog(sender):
-            self.update_conversation_list()
             self.dialog_open = False
+            self.update_conversation_list()
 
         def confirmed(sender):
             self.dialog_open = False
@@ -765,8 +765,8 @@ class ConversationsDisplay():
             return
 
         def cancel_block(_b):
-            self.update_conversation_list()
             self.dialog_open = False
+            self.update_conversation_list()
 
         def confirm_block(_b):
             try:
@@ -778,8 +778,8 @@ class ConversationsDisplay():
                 nomadnet.Conversation.delete_conversation(source_hash_text, self.app)
             except Exception:
                 pass
-            self.update_conversation_list()
             self.dialog_open = False
+            self.update_conversation_list()
 
         try:
             who = self.app.directory.simplest_display_str(dest)
@@ -1027,8 +1027,8 @@ class ConversationsDisplay():
         r_trusted   = urwid.RadioButton(trust_button_group, "Trusted")
 
         def dismiss_dialog(sender):
-            self.update_conversation_list()
             self.dialog_open = False
+            self.update_conversation_list()
 
         def confirmed(sender):
             try:
@@ -1056,6 +1056,7 @@ class ConversationsDisplay():
                         self._set_filter(ConversationsDisplay.LIST_FILTER_UNTRUSTED)
                 self.display_conversation(source_hash_text)
                 self.dialog_open = False
+                self.update_conversation_list()
 
             except Exception as e:
                 RNS.log("Could not start conversation. The contained exception was: "+str(e), RNS.LOG_VERBOSE)
@@ -1112,8 +1113,8 @@ class ConversationsDisplay():
         e_uri = urwid.Edit(caption="URI : ",edit_text=lxm_uri)
 
         def dismiss_dialog(sender):
-            self.update_conversation_list()
             self.dialog_open = False
+            self.update_conversation_list()
 
         def confirmed(sender):
             try:
