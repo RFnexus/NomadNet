@@ -1599,6 +1599,16 @@ If the URL is just `*#`* with no name after it, the link jumps to the next \\`> 
 `=
 ``
 
+>>Anchors in external links
+
+If you want to link to an anchor on another page, you can include it as a request variable:
+
+`Faaa
+`=
+`[Conclusion`a8d24177d946de4f1f0a0fe1af9a1338:/page/document.mu`anchor=conclusion]
+`=
+``
+
 >>Notes on namespaces and collisions
 
 Auto-anchors from headings and explicit \\`: anchors share a single namespace per page. If an explicit anchor collides with a heading slug, the first one declared is where it will jump to. 
