@@ -1218,9 +1218,11 @@ def _message_widget(app, hub, m, link_delegate=None):
 
         elif ms.startswith("link_"):
             kind = ms[len("link_"):]
-            label = mb.split("`")[0]
+            comps = mb.split("`")
+            label = comps[0]
+            fields = "|"+comps[1].replace("`", "") if len(comps) > 1 else ""
             url = f"{kind}://{mb}"
-            link_mu = f"`_`F{t['link']}`[{label}`{url}]`f`_"
+            link_mu = f"`_`F{t['link']}`[{label}{fields}`{url}]`f`_"
             link_md = f"[{label}]({url})"
             message_body += link_mu
         else:

@@ -1069,7 +1069,11 @@ class Browser:
 
         def confirmed(sender):
             try:
-                self.retrieve_url(e_url.get_edit_text().strip())
+                entered_url = e_url.get_edit_text().strip()
+                if not "`" in entered_url and ":" in entered_url:
+                    pos = entered_url.find("|")
+                    if pos: entered_url = entered_url[:pos]+"`"+entered_url[pos+1:]
+                self.retrieve_url(entered_url)
             except Exception as e:
                 self.browser_footer = urwid.Text("Could not open link: "+str(e))
                 self.frame.contents["footer"] = (self.browser_footer, self.frame.options())
