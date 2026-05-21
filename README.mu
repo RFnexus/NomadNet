@@ -82,8 +82,8 @@ To use Nomad Network on packet radio or LoRa, you will need to configure your Re
 
 If you want to try Nomad Network without building your own physical network, you can connect to the `_`!`[distributed RNS backbone`a8d24177d946de4f1f0a0fe1af9a1338:/page/blob.mu`g=reticulum|r=reticulum|ref=HEAD|path=docs/markdown/gettingstartedfast.md|anchor=connect-to-the-distributed-backbone]`!`_ over the Internet, where there is already quite a bit of Nomad Network and LXMF activity. If you connect to the testnet, you can leave nomadnet running for a while and wait for it to receive announces from other nodes on the network that host pages or services, or you can try connecting directly to some nodes listed here:
 
- - `B3339ce92808be498e9e05590ff27cbfdfe4`b The rns.recipes forum
- - `B333a4a5e861626ce97c9aa544d9ecdf6d22`b rmap.world
+ - `!`_`[ce92808be498e9e05590ff27cbfdfe4]`_`! The rns.recipes forum
+ - `!`_`[`B333a4a5e861626ce97c9aa544d9ecdf6d22]`_`! rmap.world
 
 To browse pages on a node that is not currently known, open the URL dialog in the `!Network`! section of the program by pressing `!Ctrl+U`!, paste or enter the address and select `!Go`! or press enter. Nomadnet will attempt to discover and connect to the requested node.
 
