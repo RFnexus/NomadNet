@@ -6,7 +6,7 @@ Nomad Network allows you to build private and resilient communications platforms
 
 Nomad Network is build on `_`!`[LXMF`a8d24177d946de4f1f0a0fe1af9a1338:/page/repo.mu`g=reticulum|r=lxmf]`!`_ and `_`!`[Reticulum`a8d24177d946de4f1f0a0fe1af9a1338:/page/repo.mu`g=reticulum|r=reticulum]`!`_, which together provides the cryptographic mesh functionality and peer-to-peer message routing that Nomad Network relies on. This foundation also makes it possible to use the program over a very wide variety of communication mediums, from packet radio to fiber optics.
 
-Nomad Network does not need any connections to the public internet to work. In fact, it doesn't even need an IP or Ethernet network. You can use it entirely over packet radio, LoRa or even serial lines. But if you wish, you can bridge islanded networks over the Internet or private ethernet networks, or you can build networks running completely over the Internet. The choice is yours. Since Nomad Network uses Reticulum, it is efficient enough to run even over *extremely* low-bandwidth medium, and has been succesfully used over 300bps radio links.
+Nomad Network does not need any connections to the public internet to work. In fact, it doesn't even need an IP or Ethernet network. You can use it entirely over packet radio, LoRa or even serial lines. But if you wish, you can bridge islanded networks over the Internet or private ethernet networks, or you can build networks running completely over the Internet. The choice is yours. Since Nomad Network uses Reticulum, it is efficient enough to run even over `*extremely`* low-bandwidth medium, and has been succesfully used over 300bps radio links.
 
 If you'd rather want to use an LXMF client with a graphical user interface, you may want to take a look at `_`!`[Sideband`a8d24177d946de4f1f0a0fe1af9a1338:/page/repo.mu`g=reticulum|r=sideband]`!`_, which is available for Linux, Android, Windows and macOS.
 
@@ -40,7 +40,7 @@ nomadnet --help
 `=
 `b
 
-If you are using an operating system that blocks normal user package installation via `pip`, you can return `pip` to normal behaviour by editing the `~/.config/pip/pip.conf` file, and adding the following directive in the `[global]` section:
+If you are using an operating system that blocks normal user package installation via `B333pip`b, you can return `B333pip`b to normal behaviour by editing the `B333~/.config/pip/pip.conf`b file, and adding the following directive in the `B333[global]`b section:
 
 `B333
 `=
@@ -49,7 +49,7 @@ break-system-packages = true
 `=
 `b
 
-Alternatively, you can use the `pipx` tool to install Nomad Network in an isolated environment:
+Alternatively, you can use the `B333pipx`b tool to install Nomad Network in an isolated environment:
 
 `B333
 `=
@@ -81,10 +81,10 @@ To use Nomad Network on packet radio or LoRa, you will need to configure your Re
 
 If you want to try Nomad Network without building your own physical network, you can connect to the `_`!`[distributed RNS backbone`a8d24177d946de4f1f0a0fe1af9a1338:/page/blob.mu`g=reticulum|r=reticulum|ref=HEAD|path=docs/markdown/gettingstartedfast.md|anchor=connect-to-the-distributed-backbone]`!`_ over the Internet, where there is already quite a bit of Nomad Network and LXMF activity. If you connect to the testnet, you can leave nomadnet running for a while and wait for it to receive announces from other nodes on the network that host pages or services, or you can try connecting directly to some nodes listed here:
 
- - `9ce92808be498e9e05590ff27cbfdfe4` The rns.recipes forum
- - `a4a5e861626ce97c9aa544d9ecdf6d22` rmap.world
+ - `B3339ce92808be498e9e05590ff27cbfdfe4`b The rns.recipes forum
+ - `B333a4a5e861626ce97c9aa544d9ecdf6d22`b rmap.world
 
-To browse pages on a node that is not currently known, open the URL dialog in the `Network` section of the program by pressing `Ctrl+U`, paste or enter the address and select `Go` or press enter. Nomadnet will attempt to discover and connect to the requested node.
+To browse pages on a node that is not currently known, open the URL dialog in the `!Network`! section of the program by pressing `!Ctrl+U`!, paste or enter the address and select `!Go`! or press enter. Nomadnet will attempt to discover and connect to the requested node.
 
 >>> Install on Android
 
