@@ -1291,6 +1291,7 @@ class ChannelsDisplay():
         self.users_visible = True
         self.channel_list_visible = True
         self.collapse_join_part = False
+        self._room_drafts = {}
 
         self._build_listbox()
         self.gutter = ChannelsExpandGutter(self.app, self)
@@ -1325,8 +1326,42 @@ class ChannelsDisplay():
         self.app.rrc.set_message_callback(self._on_rrc_message)
 
     def _set_right_widget(self, widget):
+        prev = getattr(self, "right", None)
+        if isinstance(prev, RoomWidget) and prev is not widget:
+            self._save_room_draft(prev)
         self.right = widget
         self._apply_channel_list_visibility(focus_right=True)
+
+    def _draft_key(self, hub, room):
+        try:
+            return (hub.hub_hash, hub.dest_name, room)
+        except Exception:
+            return None
+
+    def _save_room_draft(self, room_widget):
+        try:
+            key = self._draft_key(room_widget.hub, room_widget.room)
+            if key is None:
+                return
+            text = room_widget.editor.get_edit_text()
+            if text:
+                self._room_drafts[key] = text
+            else:
+                self._room_drafts.pop(key, None)
+        except Exception:
+            pass
+
+    def _restore_room_draft(self, room_widget):
+        try:
+            key = self._draft_key(room_widget.hub, room_widget.room)
+            if key is None:
+                return
+            text = self._room_drafts.get(key)
+            if text:
+                room_widget.editor.set_edit_text(text)
+                room_widget.editor.set_edit_pos(len(text))
+        except Exception:
+            pass
 
     def toggle_channel_list(self):
         if self.channel_list_visible and self.right is self.placeholder:
@@ -1636,6 +1671,7 @@ class ChannelsDisplay():
         widget = RoomWidget(self, hub, room)
         self.current_room_widget = widget
         self._set_right_widget(widget)
+        self._restore_room_draft(widget)
         self.columns_widget.focus_position = len(self.columns_widget.contents)-1
         self.shortcuts_display = self.room_shortcuts
         self.app.ui.main_display.update_active_shortcuts()
