@@ -20,6 +20,7 @@ from nomadnet.util import sanitize_name
 from RNS.Utilities.rngit.util import MarkdownToMicron
 from RNS.Utilities.rngit.highlight import SyntaxHighlighter
 from .MicronParser import markup_to_attrmaps
+from .Helpers import ClickableIcon, osc52_copy
 from nomadnet.util import strip_modifiers, strip_micron, strip_escaped_micron, unescape_micron, strip_non_formatting_tags
 from nomadnet.ui import THEME_DARK, THEME_LIGHT
 
@@ -2235,7 +2236,7 @@ class ConversationWidget(urwid.WidgetWrap):
                 added_hashes.append(message_hash)
                 was_loaded = message.loaded
                 try:
-                    message_widget = LXMessageWidget(message, theme=self.app.config["textui"]["theme"])
+                    message_widget = LXMessageWidget(message, theme=self.app.config["textui"]["theme"], conversation_widget=self)
                 except Exception as e:
                     RNS.log("Skipping message loading for "+str(message.file_path)+" due to error: "+str(e), RNS.LOG_WARNING)
                     message.unload()
@@ -2550,9 +2551,10 @@ class ConversationWidget(urwid.WidgetWrap):
 class LXMessageWidget(urwid.WidgetWrap):
     mdc = MarkdownToMicron(max_width=80, syntax_highlighter=SyntaxHighlighter(), url_scope=None) 
 
-    def __init__(self, message, theme=THEME_DARK):
+    def __init__(self, message, theme=THEME_DARK, conversation_widget=None):
         app = nomadnet.NomadNetworkApp.get_shared_instance()
         g = app.ui.glyphs
+        self._conversation_widget = conversation_widget
         self.timestamp = message.get_timestamp()
         self.sort_timestamp = message.sort_timestamp
         self.transfer_done = False
@@ -2629,12 +2631,47 @@ class LXMessageWidget(urwid.WidgetWrap):
                 attachment_strings.append(g[atype if atype != "file" else "file"]+" "+aname)
             title_string += " | " + " ".join(attachment_strings)
 
-        title = urwid.AttrMap(urwid.Text(title_string), header_style)
+        content_text = message.get_content()
+
+        if content_text:
+            copy_glyph = g.get("copy", "[C]")
+            check_glyph = g.get("check", "v").center(len(copy_glyph))
+            copy_icon = ClickableIcon(copy_glyph)
+
+            conv_widget = self._conversation_widget
+            def on_copy_click(icon=copy_icon, content=content_text, cg=copy_glyph, kg=check_glyph, cw=conv_widget):
+                osc52_copy(content)
+                icon.set_text(kg)
+                def _restore(loop, user_data):
+                    icon.set_text(cg)
+                try:
+                    app.ui.loop.set_alarm_in(2.0, _restore)
+                except Exception:
+                    icon.set_text(cg)
+                if cw is not None and cw.frame is not None:
+                    def _refocus(loop, user_data):
+                        try:
+                            cw.frame.focus_position = "footer"
+                        except Exception:
+                            pass
+                    try:
+                        app.ui.loop.set_alarm_in(0, _refocus)
+                    except Exception:
+                        pass
+            copy_icon._on_click = on_copy_click
+
+            copy_width = len(copy_glyph) + 2
+            title_row = urwid.Columns([
+                ("weight", 1, urwid.Text(title_string)),
+                (copy_width, urwid.Padding(copy_icon, left=1, right=1)),
+            ])
+            title = urwid.AttrMap(title_row, header_style)
+        else:
+            title = urwid.AttrMap(urwid.Text(title_string), header_style)
 
         self.progress_widget = urwid.Text("")
         self.progress_attr = urwid.AttrMap(self.progress_widget, "progress_full")
 
-        content_text = message.get_content()
         content_lines = content_text.split("\n")
         markdown = renderer == LXMF.RENDERER_MARKDOWN
 

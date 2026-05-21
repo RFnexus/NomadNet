@@ -168,6 +168,7 @@ GLYPHS = {
     ("image",           "[I]",       "\u25a3",      "\uf1c5"),
     ("audio",           "[~]",       "\u266b",      "\uf1c7"),
     ("pin",             "*",         "\u2605",      "\uf08d"),
+    ("copy",            "[C]",       "\u29c9",      "\uf0c5"),
 }
 
 class TextUI:
