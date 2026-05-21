@@ -187,7 +187,7 @@ class ChannelsListShortcuts():
 class ChannelsRoomShortcuts():
     def __init__(self, app):
         self.app = app
-        self.widget = urwid.AttrMap(urwid.Text("[C-d] Send  [C-l] Leave  [C-k] Clear  [C-u] Users  [C-y] Channels  [F8] Collapse Joins  [Tab] Focus"), "shortcutbar")
+        self.widget = urwid.AttrMap(urwid.Text("[C-d] Send  [C-w] Leave  [C-k] Clear  [C-u] Users  [C-y] Channels  [F8] Collapse Joins  [Tab] Focus"), "shortcutbar")
 
 
 class ChannelsDialogLineBox(urwid.LineBox):
@@ -386,7 +386,7 @@ class RoomMessageEdit(urwid.Edit):
             self.delegate.send_message()
         elif key == "ctrl k":
             self.set_edit_text("")
-        elif key == "ctrl l":
+        elif key == "ctrl w":
             self.delegate.leave_room()
         elif key == "ctrl u":
             self.delegate.toggle_users()
