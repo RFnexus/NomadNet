@@ -1314,12 +1314,15 @@ def _message_widget(app, hub, room, m, link_delegate=None):
         mb = span[1]
         if ms.startswith("irc_mention"):
             if not app.rrc_nick_colors:
-                message_body += f"`!`F{t['mention']}{mb}`f`!"
+                if app.rrc_mention_color: mention_color = f"`FT{app.rrc_mention_color}"
+                else: mention_color = f"`F{t['mention']}"
+                message_body += f"`!{mention_color}{mb}`f`!"
                 if app.rrc_color_mention_timestamps: irc_ts = f"`F{t['mention']}"
 
             else:
                 try:
-                    own_nick_color = get_nick_color(app.identity.hash, t, app)
+                    if not app.rrc_mention_color: own_nick_color = get_nick_color(app.identity.hash, t, app)
+                    else: own_nick_color = app.rrc_mention_color
                     message_body += f"`!`FT{own_nick_color}{mb}`f`!"
                     if app.rrc_color_mention_timestamps: irc_ts = f"`FT{own_nick_color}"
 

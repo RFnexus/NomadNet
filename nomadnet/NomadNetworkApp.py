@@ -158,6 +158,7 @@ class NomadNetworkApp:
         self.rrc_ephemeral_notices = 600
         self.rrc_nick_colors = True
         self.rrc_nick_colors_theme = None
+        self.rrc_mention_color = None
         self.rrc_color_mention_timestamps = True
         self.rrc_ui_justify_msgs = True
         self.rrc_ui_space_msgs = False
@@ -1013,6 +1014,13 @@ class NomadNetworkApp:
                     except Exception: value = True
                     self.rrc_nick_colors = value
 
+                if option == "mention_color":
+                    value = self.config["rrc"][option]
+                    if len(value) == 6:
+                        try: bytes.fromhex(value)
+                        except Exception: value = None
+                        self.rrc_mention_color = value
+
                 if option == "color_mention_timestamps":
                     try: value = self.config["rrc"].as_bool(option)
                     except Exception: value = True
@@ -1408,6 +1416,10 @@ show_gutters = yes
 # You can configure your own color theme
 # for nick color assignment
 # nick_colors_theme = f68787, 00c394, d59e00, ...
+
+# You can set a specific color for mentions
+# of your nick
+# mention_color = FFBB44
 
 
 [node]

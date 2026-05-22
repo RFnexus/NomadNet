@@ -1001,6 +1001,12 @@ Whether or not to render RRC nicks in distinct colors based on identity hash.
 <
 
 >>>
+`!mention_color = None`!
+>>>>
+Sets a specific color for mentions of your nick, for example FFBB44.
+<
+
+>>>
 `!color_mention_timestamps = yes`!
 >>>>
 Whether or not to color timestamps of messages you were mentioned in.
