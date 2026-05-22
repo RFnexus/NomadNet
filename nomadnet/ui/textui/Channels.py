@@ -1328,15 +1328,13 @@ def _message_widget(app, hub, m, link_delegate=None):
     prefix_micron = f"{irc_ts}{_ts_prefix_raw(m.ts)}"
     if m.kind == "action":
         nick_micron = f" `*`f{nick_attr}{sender}`f`* "
-        body_format = f"`*"
-        message_body = strip_micron(message_body)
+        message_body = f"`*`f{nick_attr}{strip_micron(message_body)}`f`*"
     else:
         nick_micron = f"`f{nick_attr}<{sender}>`f "
-        body_format = f""
 
     if app.rrc_ui_justify_msgs:
         prefix_rendered = _render_body(f"{prefix_micron}", fg=t["text"])
-        body_rendered   = _render_body(f"{nick_micron}{body_format}{message_body}{body_format}", link_delegate=ld, fg=t["text"])
+        body_rendered   = _render_body(f"{nick_micron}{message_body}", link_delegate=ld, fg=t["text"])
         if app.rrc_ui_space_msgs: body_rendered.append(urwid.Text(""))
         columns         = urwid.Columns([(urwid.PACK, urwid.Pile(prefix_rendered)), urwid.Pile(body_rendered)], dividechars=1)
         final_widget    = urwid.Padding(columns, left=1)
