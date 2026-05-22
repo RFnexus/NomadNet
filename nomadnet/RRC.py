@@ -57,6 +57,7 @@ T_PARTED = 13
 
 T_MSG    = 20
 T_NOTICE = 21
+T_ACTION = 22
 
 T_PING = 30
 T_PONG = 31
@@ -81,6 +82,7 @@ L_MAX_ROOMS_PER_SESSION     = 3
 L_RATE_LIMIT_MSGS_PER_MINUTE= 4
 
 CAP_RESOURCE_ENVELOPE = 0
+CAP_ACTION            = 1
 
 B_RES_ID       = 0
 B_RES_KIND     = 1
@@ -216,6 +218,7 @@ class RRCHub:
         self.welcomed    = False
         self.hub_name    = None
         self.hub_version = None
+        self.hub_caps    = {}
         self.motd        = None
 
         self.max_nick_bytes        = DEFAULT_MAX_NICK_BYTES
@@ -440,7 +443,10 @@ class RRCHub:
         body = {
             B_HELLO_NAME: "nomadnet",
             B_HELLO_VER:  "0.1",
-            B_HELLO_CAPS: {CAP_RESOURCE_ENVELOPE: True},
+            B_HELLO_CAPS: {
+                CAP_RESOURCE_ENVELOPE: True,
+                CAP_ACTION:            True,
+            },
         }
         env = _make_envelope(T_HELLO, src=self.manager.identity.hash, body=body)
         nick = self.get_effective_nick()
@@ -624,6 +630,23 @@ class RRCHub:
             self._sent_ids.append(bytes(mid))
         self._send_env(env)
         self._record_message(RRCMessage("msg", r, self.manager.identity.hash, nick, text, _now_ms()), local=True)
+        return mid
+
+    def send_action(self, room, text):
+        r = self._normalize_room(room)
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError("action text must be non-empty")
+        if len(text.encode("utf-8")) > self.max_msg_body_bytes:
+            raise ValueError("action too long for hub limit")
+        env = _make_envelope(T_ACTION, src=self.manager.identity.hash, room=r, body=text)
+        nick = self.get_effective_nick()
+        if nick:
+            env[K_NICK] = nick
+        mid = env[K_ID]
+        if isinstance(mid, (bytes, bytearray)):
+            self._sent_ids.append(bytes(mid))
+        self._send_env(env)
+        self._record_message(RRCMessage("action", r, self.manager.identity.hash, nick, text, _now_ms()), local=True)
         return mid
 
     def _per_room_cap(self):
@@ -865,6 +888,9 @@ class RRCHub:
                 ver = body.get(B_WELCOME_VER)
                 if isinstance(ver, str):
                     self.hub_version = ver
+                caps = body.get(B_WELCOME_CAPS)
+                if isinstance(caps, dict):
+                    self.hub_caps = dict(caps)
                 limits = body.get(B_WELCOME_LIMITS)
                 if isinstance(limits, dict):
                     if L_MAX_NICK_BYTES in limits:
@@ -897,6 +923,7 @@ class RRCHub:
             if isinstance(room, str) and room:
                 r = room.strip().lower()
                 body = env.get(K_BODY)
+                joiner_nick = env.get(K_NICK)
                 own_hash = self.manager.identity.hash if self.manager.identity is not None else None
 
                 body_hashes = []
@@ -919,6 +946,13 @@ class RRCHub:
                         members.add(h)
                     if own_hash is not None:
                         members.add(own_hash)
+
+                    # rrcd 0.3.2 attaches advisory K_NICK to fanout JOINED; learn it
+                    # so display_name_for() can render the nick instead of a hash prefix.
+                    if (not self_join) and isinstance(joiner_nick, str) and joiner_nick and len(body_hashes) == 1:
+                        jh = body_hashes[0]
+                        if own_hash is None or jh != own_hash:
+                            self.nicks[jh] = joiner_nick
 
                 if self_join:
                     if not silent:
@@ -946,6 +980,7 @@ class RRCHub:
             if isinstance(room, str) and room:
                 r = room.strip().lower()
                 body = env.get(K_BODY)
+                parter_nick = env.get(K_NICK)
                 own_hash = self.manager.identity.hash if self.manager.identity is not None else None
 
                 body_hashes = []
@@ -956,6 +991,13 @@ class RRCHub:
                     self_part = r in self._pending_parts
                     if self_part:
                         self._pending_parts.discard(r)
+
+                    # rrcd 0.3.2 attaches advisory K_NICK to fanout PARTED; learn it
+                    # before forgetting the member so "<nick> left" renders correctly.
+                    if (not self_part) and isinstance(parter_nick, str) and parter_nick and len(body_hashes) == 1:
+                        ph = body_hashes[0]
+                        if own_hash is None or ph != own_hash:
+                            self.nicks[ph] = parter_nick
 
                     members = self.members.get(r)
                     if members is not None:
@@ -994,6 +1036,39 @@ class RRCHub:
             if isinstance(body, str):
                 msg = RRCMessage(
                     "msg",
+                    room.strip().lower() if isinstance(room, str) else None,
+                    bytes(src) if isinstance(src, (bytes, bytearray)) else None,
+                    nick if isinstance(nick, str) else None,
+                    body,
+                    _now_ms(),
+                )
+                is_own = isinstance(src, (bytes, bytearray)) and own_hash is not None and bytes(src) == own_hash
+                if not is_own:
+                    own_nick = self.get_effective_nick()
+                    pat = _mention_re(own_nick)
+                    if pat is not None and pat.search(body):
+                        msg.mention = True
+                self._record_message(msg)
+            return
+
+        if t == T_ACTION:
+            body = env.get(K_BODY)
+            room = env.get(K_ROOM)
+            src  = env.get(K_SRC)
+            nick = env.get(K_NICK)
+            mid  = env.get(K_ID)
+            own_hash = self.manager.identity.hash if self.manager.identity is not None else None
+            if isinstance(src, (bytes, bytearray)) and own_hash is not None and bytes(src) == own_hash:
+                if isinstance(mid, (bytes, bytearray)) and bytes(mid) in self._sent_ids:
+                    return
+            if isinstance(src, (bytes, bytearray)) and isinstance(nick, str) and nick:
+                with self._lock:
+                    self.nicks[bytes(src)] = nick
+                    if isinstance(room, str) and room:
+                        self.members.setdefault(room.strip().lower(), set()).add(bytes(src))
+            if isinstance(body, str):
+                msg = RRCMessage(
+                    "action",
                     room.strip().lower() if isinstance(room, str) else None,
                     bytes(src) if isinstance(src, (bytes, bytearray)) else None,
                     nick if isinstance(nick, str) else None,

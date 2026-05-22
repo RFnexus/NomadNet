@@ -916,6 +916,7 @@ class RoomWidget(urwid.WidgetWrap):
         "/join <room>                         - join a room on this hub",
         "/part [room]                         - leave a room (default: current)",
         "/leave [room]                        - alias for /part",
+        "/me <text>                           - send an action (e.g. /me waves)",
         "/nick <name>                         - set your nick on this hub only",
         "/who [room]                          - list users (current room if omitted)",
         "/names [room]                        - alias for /who",
@@ -1013,6 +1014,22 @@ class RoomWidget(urwid.WidgetWrap):
                     self.display.show_placeholder()
             except Exception as e:
                 self._local_message("error", "Part failed: "+str(e))
+            return
+
+        if cmd == "me":
+            if not self._require_connected():
+                return
+            if not arg:
+                self._local_message("error", "Usage: /me <text>")
+                return
+            limit = self.hub.max_msg_body_bytes or 350
+            if len(arg.encode("utf-8")) > limit:
+                self._local_message("error", "Action too long (max "+str(limit)+" bytes)")
+                return
+            try:
+                self.hub.send_action(self.room, arg)
+            except Exception as e:
+                self._local_message("error", "/me failed: "+str(e))
             return
 
         if cmd == "nick":
@@ -1309,7 +1326,10 @@ def _message_widget(app, hub, m, link_delegate=None):
     irc_ts = f"`F{t['ts']}"
 
     prefix_micron = f"{irc_ts}{_ts_prefix_raw(m.ts)}"
-    nick_micron = f"`f{nick_attr}<{sender}>`f "
+    if m.kind == "action":
+        nick_micron = f"`f{nick_attr}* {sender}`f "
+    else:
+        nick_micron = f"`f{nick_attr}<{sender}>`f "
     if app.rrc_ui_justify_msgs:
         prefix_rendered = _render_body(f"{prefix_micron}", fg=t["text"])
         body_rendered   = _render_body(f"{nick_micron}{message_body}", link_delegate=ld, fg=t["text"])
