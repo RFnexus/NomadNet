@@ -164,6 +164,7 @@ class NomadNetworkApp:
         self.rrc_ui_render_markdown = True
         self.rrc_ui_render_micron = True
         self.rrc_show_gutters = False
+        self.rrc_enable_esoterics = False
 
         if not os.path.isdir(self.storagepath):
             os.makedirs(self.storagepath)
@@ -1045,6 +1046,11 @@ class NomadNetworkApp:
                     try: value = self.config["rrc"].as_bool(option)
                     except Exception: value = False
                     self.rrc_show_gutters = value
+
+                if option == "enable_esoterics":
+                    try: value = self.config["rrc"].as_bool(option)
+                    except Exception: value = False
+                    self.rrc_enable_esoterics = value
 
         if "node" in self.config:
             if not "enable_node" in self.config["node"]:
