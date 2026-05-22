@@ -1053,6 +1053,12 @@ This option allows sanitizing announced names before they are displayed in the u
 <
 
 >>>
+`!clipboard_copy = no`!
+>>>>
+If your terminal supports it, you can enable copy-to-clipboard functionality using OSC52 escape sequences.
+<
+
+>>>
 `!hide_guide = no`!
 >>>>
 This option allows hiding the `![ Guide ]`! section of the program.
