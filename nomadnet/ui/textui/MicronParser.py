@@ -36,6 +36,8 @@ INDENT_RIGHT   = 1
 MAX_TABLE_WIDTH = 100
 
 def default_state(fg=None, bg=None):
+    global SELECTED_STYLES
+    ensure_selected_styles()
     if fg == None: fg = SELECTED_STYLES["plain"]["fg"]
     if bg == None: bg = DEFAULT_BG
     state = {
@@ -82,6 +84,11 @@ class _AttrMapList(list):
     """list subclass that allows attaching parser metadata like `anchors`."""
     pass
 
+def ensure_selected_styles():
+    global SELECTED_STYLES
+    theme = nomadnet.NomadNetworkApp.get_shared_instance().config["textui"]["theme"]
+    if theme == nomadnet.ui.TextUI.THEME_DARK: SELECTED_STYLES = STYLES_DARK
+    else:                                      SELECTED_STYLES = STYLES_LIGHT
 
 def markup_to_attrmaps(markup, url_delegate = None, fg_color=None, bg_color=None, link_class=None, anchors=None):
     global LINK_CLASS
@@ -89,10 +96,7 @@ def markup_to_attrmaps(markup, url_delegate = None, fg_color=None, bg_color=None
     else: LINK_CLASS = LinkableText
 
     global SELECTED_STYLES
-    if nomadnet.NomadNetworkApp.get_shared_instance().config["textui"]["theme"] == nomadnet.ui.TextUI.THEME_DARK:
-        SELECTED_STYLES = STYLES_DARK
-    else:
-        SELECTED_STYLES = STYLES_LIGHT
+    ensure_selected_styles()
 
     attrmaps = _AttrMapList()
 
