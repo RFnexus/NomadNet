@@ -35,7 +35,8 @@ class BrowserFrame(urwid.Frame):
         elif key == "ctrl g":
             nomadnet.NomadNetworkApp.get_shared_instance().ui.main_display.sub_displays.network_display.toggle_fullscreen()
         elif key == "ctrl y":
-            self.delegate.copy_url()
+            if self.delegate.app.config["textui"]["clipboard_copy"]:
+                self.delegate.copy_url()
         elif self.focus_position == "body":
             if key == "down" or key == "up":
                 try:
@@ -500,17 +501,24 @@ class Browser:
         return urwid.AttrMap(widget, "browser_controls")
 
     def make_control_widget(self):
-        lstr = self.g["node"]+" "+self.current_url()
+        clipboard_copy_enabled = self.app.config["textui"]["clipboard_copy"]
         copy_glyph = self.g.get("copy", "[C]")
-        lmax = self._content_cols()-len(copy_glyph)-len(copy_glyph)-1
+        lstr = self.g["node"]+" "+self.current_url()
+        if clipboard_copy_enabled:
+            lmax = self._content_cols()-len(copy_glyph)-len(copy_glyph)-1
+        else:
+            lmax = self._content_cols()-1
         if len(lstr) > lmax: lstr = lstr[:lmax-1]+"…"
         url_text = urwid.Text(lstr)
-        copy_icon = ClickableIcon(copy_glyph, on_click=lambda: self.copy_url())
-        copy_width = len(copy_glyph) + 2
-        header_row = urwid.Columns([
-            ("weight", 1, url_text),
-            (copy_width, urwid.Padding(copy_icon, left=1, right=1)),
-        ])
+        if clipboard_copy_enabled:
+            copy_icon = ClickableIcon(copy_glyph, on_click=lambda: self.copy_url())
+            copy_width = len(copy_glyph) + 2
+            header_row = urwid.Columns([
+                ("weight", 1, url_text),
+                (copy_width, urwid.Padding(copy_icon, left=1, right=1)),
+            ])
+        else:
+            header_row = url_text
         return urwid.AttrMap(urwid.Pile([header_row, urwid.Divider(self.g["divider1"])]), "browser_controls")
 
     def make_request_failed_widget(self):

@@ -936,6 +936,11 @@ class NomadNetworkApp:
                             else:
                                 self.config["textui"]["sanitize_names"] = self.config["textui"].as_bool("sanitize_names")
 
+                            if not "clipboard_copy" in self.config["textui"]:
+                                self.config["textui"]["clipboard_copy"] = False
+                            else:
+                                self.config["textui"]["clipboard_copy"] = self.config["textui"].as_bool("clipboard_copy")
+
                             if not "animation_interval" in self.config["textui"]:
                                 self.config["textui"]["animation_interval"] = 1
                             else:
@@ -980,12 +985,12 @@ class NomadNetworkApp:
                     except Exception: value = None
                     if value is not None and value >= 0:
                         self.rrc_history_per_room_cap = value
-                
+
                 if option == "filter_loaded_history":
                     try: value = self.config["rrc"].as_bool(option)
                     except Exception: value = True
                     self.rrc_filter_loaded_history = value
-                
+
                 if option == "ephemeral_notices":
                     try: value = self.config["rrc"].as_float(option)
                     except Exception: value = 0
@@ -995,12 +1000,12 @@ class NomadNetworkApp:
                     try: value = self.config["rrc"].as_bool(option)
                     except Exception: value = True
                     self.rrc_ui_justify_msgs = value
-                
+
                 if option == "space_msgs":
                     try: value = self.config["rrc"].as_bool(option)
                     except Exception: value = False
                     self.rrc_ui_space_msgs = value
-                
+
                 if option == "nick_colors":
                     try: value = self.config["rrc"].as_bool(option)
                     except Exception: value = True
@@ -1024,12 +1029,12 @@ class NomadNetworkApp:
                     try: value = self.config["rrc"].as_bool(option)
                     except Exception: value = True
                     self.rrc_ui_render_markdown = value
-                
+
                 if option == "render_micron":
                     try: value = self.config["rrc"].as_bool(option)
                     except Exception: value = True
                     self.rrc_ui_render_micron = value
-                
+
                 if option == "show_gutters":
                     try: value = self.config["rrc"].as_bool(option)
                     except Exception: value = False
@@ -1349,6 +1354,11 @@ hide_guide = no
 # text sanitization on names received in
 # announces.
 sanitize_names = yes
+
+# You can enable clipboard features. This
+# relies on your terminal supporting OSC52
+# escape sequences.
+clipboard_copy = no
 
 [rrc]
 
