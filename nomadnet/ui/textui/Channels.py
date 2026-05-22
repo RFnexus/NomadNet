@@ -773,20 +773,21 @@ class RoomWidget(urwid.WidgetWrap):
 
             if self.hub.clean_last_removed > self.last_history_clean:
                 try:
-                    hub_msgs = self.hub.get_messages(self.room) if (self.hub is not None and self.room is not None) else []
-                    self.last_history_clean = time.time()
-                    c = self.messagelist.body_len()
-                    old = set()
-                    for i in range(0, c):
-                        msg = None
-                        w = self.messagelist.get_item(i)
-                        if hasattr(w, "_original_widget"): o = w._original_widget
-                        else: o = None
-                        if hasattr(o, "msg"): msg = o.msg
-                        elif hasattr(w, "msg"): msg = w.msg
-                        if msg and not msg in hub_msgs: old.add(i)
+                    with self.hub._lock:
+                        hub_msgs = self.hub.get_messages(self.room, take_lock=False) if (self.hub is not None and self.room is not None) else []
+                        self.last_history_clean = time.time()
+                        c = self.messagelist.body_len()
+                        old = set()
+                        for i in range(0, c):
+                            msg = None
+                            w = self.messagelist.get_item(i)
+                            if hasattr(w, "_original_widget"): o = w._original_widget
+                            else: o = None
+                            if hasattr(o, "msg"): msg = o.msg
+                            elif hasattr(w, "msg"): msg = w.msg
+                            if msg and not msg in hub_msgs: old.add(i)
 
-                    for i in reversed(list(old)): self.messagelist.delete_position(i)
+                        for i in reversed(list(old)): self.messagelist.delete_position(i)
 
                 except Exception as e:
                     RNS.log("Error while cleaning room history", RNS.LOG_ERROR)

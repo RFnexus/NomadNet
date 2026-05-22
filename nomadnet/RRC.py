@@ -815,9 +815,11 @@ class RRCHub:
             self._append_history(target_room, msg)
             self._clean_history()
 
-    def get_messages(self, room):
-        with self._lock:
-            buf = list(self.messages.get(room, []))
+    def get_messages(self, room, take_lock=True):
+        if take_lock:
+            with self._lock: buf = list(self.messages.get(room, []))
+        else:                buf = list(self.messages.get(room, []))
+
         return buf
 
     def _on_packet(self, data):
