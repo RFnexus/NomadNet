@@ -127,10 +127,18 @@ def _scan_mentions(text, own_nick):
     for m in pat.finditer(text):
         yield m.start(), m.end(), "mention", None
 
+def _scan_nick_mentions(text, own_nick):
+    if not own_nick or not text: return
+    pat = re.compile(r"(?<![A-Za-z0-9_])@([A-Za-z0-9_]+)(?![A-Za-z0-9_])", re.IGNORECASE)
+    for m in pat.finditer(text):
+        nick = m.group(1)
+        if nick.lower() != own_nick:
+            yield m.start(), m.end(), f"nick_mention", nick
 
 def _body_markup(body, body_attr="body_text", own_nick=None, check_links=True):
     spans = list(_scan_links(body))
     spans.extend(_scan_mentions(body, own_nick))
+    spans.extend(_scan_nick_mentions(body, own_nick))
     spans.sort(key=lambda s: s[0])
     filtered = []
     last_end = 0
@@ -151,6 +159,8 @@ def _body_markup(body, body_attr="body_text", own_nick=None, check_links=True):
             out.append((body_attr, body[pos:start]))
         if kind == "mention":
             out.append(("irc_mention", body[start:end]))
+        elif kind == "nick_mention":
+            out.append(("nick_mention", body[start:end]))
         else:
             base = _LINK_ATTRS[kind]
             if check_links:
@@ -736,7 +746,7 @@ class RoomWidget(urwid.WidgetWrap):
                 run.append(m)
                 continue
             flush_run()
-            widgets.append(_message_widget(self.app, self.hub, m, link_delegate=self.link_delegate))
+            widgets.append(_message_widget(self.app, self.hub, self.room, m, link_delegate=self.link_delegate))
         flush_run()
 
         if not widgets:
@@ -761,7 +771,7 @@ class RoomWidget(urwid.WidgetWrap):
             self.update_messages(replace=True)
             return
         try:
-            widget = _message_widget(self.app, self.hub, msg, link_delegate=self.link_delegate)
+            widget = _message_widget(self.app, self.hub, self.room, msg, link_delegate=self.link_delegate)
             wrapped = urwid.AttrMap(widget, None)
             body = self.messagelist.get_body()
             was_at_bottom = (self.messagelist.sticky_bottom
@@ -1225,9 +1235,24 @@ def get_nick_color(sender_hash, theme, app, shift=15):
     return nick_colors[(int.from_bytes(sender_hash)+shift)%len(nick_colors)]
 
 room_nick_src_cache = {}
+def get_nick_src(hub, room, nick):
+    try:
+        if not nick in room_nick_src_cache.get(str(room), {}):
+            if not str(room) in room_nick_src_cache: room_nick_src_cache[str(room)] = {}
+            for nh in hub.nicks.copy():
+                hubnick = hub.nicks[nh]
+                room_nick_src_cache[str(room)][hubnick] = nh
+
+        if nick in room_nick_src_cache.get(str(room), {}): return room_nick_src_cache[str(room)][str(nick)]
+        else: return None
+
+    except Exception as e:
+        RNS.log(f"Couldn't get hash for nick {nick}: {e}", RNS.LOG_DEBUG)
+        return None
+
 invalid_span_starts = [">", "#"]
 mdc = MarkdownToMicron(max_width=80, syntax_highlighter=SyntaxHighlighter(), url_scope=None)
-def _message_widget(app, hub, m, link_delegate=None):
+def _message_widget(app, hub, room, m, link_delegate=None):
     t = theme_dark if app.config["textui"]["theme"] == nomadnet.ui.TextUI.THEME_DARK else theme_light
     g = app.ui.glyphs
     own_nick = None
@@ -1274,11 +1299,12 @@ def _message_widget(app, hub, m, link_delegate=None):
     else:                                       sender = "?"
 
     if isinstance(m.src, (bytes, bytearray)):
-        room_nick_src_cache[m.nick] = m.src
+        if not str(room) in room_nick_src_cache: room_nick_src_cache[str(room)] = {}
+        room_nick_src_cache[str(room)][str(m.nick)] = m.src
 
     nick_attr = "irc_nick_self" if own else "irc_nick_peer"
     body = m.text or ""
-    spans, has_links = _body_markup(body, body_attr="body_text", own_nick=None if own else own_nick, check_links=False)
+    spans, has_links = _body_markup(body, body_attr="body_text", own_nick=own_nick, check_links=False)
     ld = link_delegate if has_links else None
 
     message_body = ""
@@ -1288,8 +1314,18 @@ def _message_widget(app, hub, m, link_delegate=None):
         if ms.startswith("irc_mention"):
             if not app.rrc_nick_colors: message_body += f"`!`F{t['mention']}{mb}`f`!"
             else:
-                try: message_body += f"`!`FT{get_nick_color(room_nick_src_cache[m.nick], t, app)}{mb}`f`!"
+                try: message_body += f"`!`FT{get_nick_color(app.identity.hash, t, app)}{mb}`f`!"
                 except: message_body += f"`!`F{t['mention']}{mb}`f`!"
+
+        elif ms.startswith("nick_mention"):
+            if not app.rrc_nick_colors: message_body += f"{mb}"
+            else:
+                mentioned_nick = mb[1:]
+                nick_src = get_nick_src(hub, room, mentioned_nick)
+                if not nick_src: message_body += f"{mb}"
+                else:
+                    nick_color = get_nick_color(nick_src, t, app)
+                    message_body += f"`!`FT{nick_color}{mb}`f`!"
 
         elif ms.startswith("link_"):
             kind = ms[len("link_"):]
@@ -1300,6 +1336,7 @@ def _message_widget(app, hub, m, link_delegate=None):
             link_mu = f"`_`F{t['link']}`[{label}{fields}`{url}]`f`_"
             link_md = f"[{label}]({url})"
             message_body += link_mu
+
         else:
             # This is a hack for now to avoid start-of-span
             # being interpreted as start-of-line by the micron
