@@ -1307,14 +1307,22 @@ def _message_widget(app, hub, room, m, link_delegate=None):
     spans, has_links = _body_markup(body, body_attr="body_text", own_nick=own_nick, check_links=False)
     ld = link_delegate if has_links else None
 
+    irc_ts = f"`F{t['ts']}"
     message_body = ""
     for span in spans:
         ms = span[0]
         mb = span[1]
         if ms.startswith("irc_mention"):
-            if not app.rrc_nick_colors: message_body += f"`!`F{t['mention']}{mb}`f`!"
+            if not app.rrc_nick_colors:
+                message_body += f"`!`F{t['mention']}{mb}`f`!"
+                if app.rrc_color_mention_timestamps: irc_ts = f"`F{t['mention']}"
+
             else:
-                try: message_body += f"`!`FT{get_nick_color(app.identity.hash, t, app)}{mb}`f`!"
+                try:
+                    own_nick_color = get_nick_color(app.identity.hash, t, app)
+                    message_body += f"`!`FT{own_nick_color}{mb}`f`!"
+                    if app.rrc_color_mention_timestamps: irc_ts = f"`FT{own_nick_color}"
+
                 except: message_body += f"`!`F{t['mention']}{mb}`f`!"
 
         elif ms.startswith("nick_mention"):
@@ -1360,9 +1368,8 @@ def _message_widget(app, hub, room, m, link_delegate=None):
 
     if app.rrc_nick_colors: nick_attr = f"`FT{get_nick_color(m.src, t, app)}"
     else:                   nick_attr = f"`F{t['nick_self']}" if own else f"`F{t['nick_peer']}"
-    irc_ts = f"`F{t['ts']}"
 
-    prefix_micron = f"{irc_ts}{_ts_prefix_raw(m.ts)}"
+    prefix_micron = f"{irc_ts}{_ts_prefix_raw(m.ts)}`f"
     if m.kind == "action":
         nick_micron = f" `*`f{nick_attr}{sender}`f`* "
         message_body = f"`*`f{nick_attr}{strip_micron(message_body)}`f`*"

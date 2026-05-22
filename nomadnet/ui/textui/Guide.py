@@ -1001,6 +1001,12 @@ Whether or not to render RRC nicks in distinct colors based on identity hash.
 <
 
 >>>
+`!color_mention_timestamps = yes`!
+>>>>
+Whether or not to color timestamps of messages you were mentioned in.
+<
+
+>>>
 `!justify_msgs = yes`!
 `!space_msgs = no`!
 `!show_gutters = no`!

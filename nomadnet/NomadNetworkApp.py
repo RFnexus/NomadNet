@@ -158,6 +158,7 @@ class NomadNetworkApp:
         self.rrc_ephemeral_notices = 600
         self.rrc_nick_colors = True
         self.rrc_nick_colors_theme = None
+        self.rrc_color_mention_timestamps = True
         self.rrc_ui_justify_msgs = True
         self.rrc_ui_space_msgs = False
         self.rrc_ui_render_markdown = True
@@ -1011,6 +1012,11 @@ class NomadNetworkApp:
                     except Exception: value = True
                     self.rrc_nick_colors = value
 
+                if option == "color_mention_timestamps":
+                    try: value = self.config["rrc"].as_bool(option)
+                    except Exception: value = True
+                    self.rrc_color_mention_timestamps = value
+
                 if option == "nick_colors_theme":
                     try:
                         colors = self.config["rrc"].as_list(option)
@@ -1385,6 +1391,7 @@ filter_loaded_history = yes
 ephemeral_notices = 10
 
 # Other display and formatting options:
+color_mention_timestamps = yes
 render_markdown = yes
 render_micron = yes
 nick_colors = yes
