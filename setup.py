@@ -1,10 +1,14 @@
-
+import sys
 import setuptools
 
 exec(open("nomadnet/_version.py", "r").read())
 
 with open("README.md", "r") as fh:
     long_description = fh.read()
+
+if "--getversion" in sys.argv:
+    print(__version__, end="")
+    exit(0)
 
 package_data = {
 "": [
