@@ -2634,7 +2634,7 @@ class LXMessageWidget(urwid.WidgetWrap):
 
         content_text = message.get_content()
 
-        if content_text:
+        if content_text and app.config["textui"]["clipboard_copy"]:
             copy_glyph = g.get("copy", "[C]")
             check_glyph = g.get("check", "v").center(len(copy_glyph))
             copy_icon = ClickableIcon(copy_glyph)
