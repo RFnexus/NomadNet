@@ -1513,10 +1513,12 @@ class Browser:
             # header tags are added.
             cache_time = Browser.DEFAULT_CACHE_TIME
             if self.markup[:4] == "#!c=":
-                endpos = self.markup.find("\n")
-                if endpos == -1:
-                    endpos = len(self.markup)
-                cache_time = int(self.markup[4:endpos])
+                try:
+                    endpos = self.markup.find("\n")
+                    if endpos == -1:
+                        endpos = len(self.markup)
+                    cache_time = int(self.markup[4:endpos])
+                except Exception as e: RNS.log(f"Invalid page cache time header: {e}", RNS.LOG_DEBUG)
 
             self.update_display()
 
