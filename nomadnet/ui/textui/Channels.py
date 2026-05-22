@@ -785,9 +785,12 @@ class RoomWidget(urwid.WidgetWrap):
                             else: o = None
                             if hasattr(o, "msg"): msg = o.msg
                             elif hasattr(w, "msg"): msg = w.msg
-                            if msg and not msg in hub_msgs: old.add(i)
+                            if msg and not msg in hub_msgs: old.add(w)
 
-                        for i in reversed(list(old)): self.messagelist.delete_position(i)
+                        list_body = self.messagelist.get_body()
+                        for w in list(old):
+                            try: list_body.remove(w)
+                            except: RNS.log(f"Could not remove expired message widget {w}: {e}", RNS.LOG_DEBUG)
 
                 except Exception as e:
                     RNS.log("Error while cleaning room history", RNS.LOG_ERROR)
