@@ -21,6 +21,7 @@ from RNS.Utilities.rngit.util import MarkdownToMicron
 from RNS.Utilities.rngit.highlight import SyntaxHighlighter
 from .MicronParser import markup_to_attrmaps
 from .Helpers import ClickableIcon, osc52_copy
+from .ReadlineEdit import ReadlineMixin, ReadlineEdit
 from nomadnet.util import strip_modifiers, strip_micron, strip_escaped_micron, unescape_micron, strip_non_formatting_tags
 from nomadnet.ui import THEME_DARK, THEME_LIGHT
 
@@ -70,7 +71,13 @@ class ConversationDisplayShortcuts():
     def __init__(self, app):
         self.app = app
 
-        self.widget = urwid.AttrMap(urwid.Text("[C-d] Send  [C-p] Paper Msg  [C-t] Title  [C-a] Attach  [C-s] Save  [C-k] Clear  [C-w] Close  [C-u] Purge  [C-x] Clear History  [C-o] Sort"), "shortcutbar")
+        self.widget = urwid.AttrMap(urwid.Text("[C-d] Send  [C-p] Paper Msg  [C-t] Title  [C-f] Attach  [C-s] Save  [Tab] ↑ Messages"), "shortcutbar")
+
+class ConversationBodyShortcuts():
+    def __init__(self, app):
+        self.app = app
+
+        self.widget = urwid.AttrMap(urwid.Text("[C-s] Save  [C-u] Purge  [C-o] Sort  [C-x] Clear History  [C-g] Fullscreen  [C-w] Close  [Tab] ↓ Editor"), "shortcutbar")
 
 class TabButton(urwid.Button):
     button_left  = urwid.Text("[")
@@ -223,6 +230,7 @@ class ConversationsDisplay():
 
         self.list_shortcuts = ConversationListDisplayShortcuts(self.app)
         self.editor_shortcuts = ConversationDisplayShortcuts(self.app)
+        self.body_shortcuts = ConversationBodyShortcuts(self.app)
 
         self.shortcuts_display = self.list_shortcuts
         self.widget = urwid.WidgetPlaceholder(self.columns_widget)
@@ -834,10 +842,10 @@ class ConversationsDisplay():
         if display_name is None:
             display_name = ""
 
-        e_id = urwid.Edit(caption="Addr : ",edit_text=source_hash_text)
+        e_id = ReadlineEdit(caption="Addr : ",edit_text=source_hash_text)
         t_id = urwid.Text("Addr : "+source_hash_text)
-        e_name = urwid.Edit(caption="Name : ",edit_text=display_name)
-        e_copy = urwid.Edit(caption="Copy : ", edit_text=source_hash_text)
+        e_name = ReadlineEdit(caption="Name : ",edit_text=display_name)
+        e_copy = ReadlineEdit(caption="Copy : ", edit_text=source_hash_text)
 
         selected_id_widget = t_id
 
@@ -878,7 +886,7 @@ class ConversationsDisplay():
         except Exception as e:
             pass
 
-        e_notes = urwid.Edit(caption="Notes: ", edit_text=notes_initial, multiline=True)
+        e_notes = ReadlineEdit(caption="Notes: ", edit_text=notes_initial, multiline=True)
         cb_pin  = urwid.CheckBox("Pin to top", state=pinned_initial)
 
         trust_button_group = []
@@ -1018,8 +1026,8 @@ class ConversationsDisplay():
         source_hash = ""
         display_name = ""
 
-        e_id = urwid.Edit(caption="Addr : ",edit_text=source_hash)
-        e_name = urwid.Edit(caption="Name : ",edit_text=display_name)
+        e_id = ReadlineEdit(caption="Addr : ",edit_text=source_hash)
+        e_name = ReadlineEdit(caption="Name : ",edit_text=display_name)
 
         trust_button_group = []
         r_untrusted = urwid.RadioButton(trust_button_group, "Untrusted")
@@ -1110,7 +1118,7 @@ class ConversationsDisplay():
     def ingest_lxm_uri(self):
         self.dialog_open = True
         lxm_uri = ""
-        e_uri = urwid.Edit(caption="URI : ",edit_text=lxm_uri)
+        e_uri = ReadlineEdit(caption="URI : ",edit_text=lxm_uri)
 
         def dismiss_dialog(sender):
             self.dialog_open = False
@@ -1410,7 +1418,7 @@ class ConversationsDisplay():
         def show_set_pn_dialog(_sender):
             current_pn = self.app.get_user_selected_propagation_node()
             current_str = RNS.hexrep(current_pn, delimit=False) if current_pn is not None else ""
-            pn_edit = urwid.Edit(caption="Hash : ", edit_text=current_str)
+            pn_edit = ReadlineEdit(caption="Hash : ", edit_text=current_str)
             status_text = urwid.Text("", align=urwid.CENTER)
 
             def reopen_sync(_b=None):
@@ -1759,14 +1767,18 @@ class ConversationsDisplay():
             focus_path = self.columns_widget.get_focus_path()
         except Exception:
             return self.list_shortcuts
-        if not focus_path:
+        if not focus_path or focus_path[0] != 1:
             return self.list_shortcuts
-        if focus_path[0] == 0:
-            return self.list_shortcuts
-        elif focus_path[0] == 1:
+        try:
+            cw = self.columns_widget.contents[1][0]
+            frame = cw.base_widget.frame
+            if frame is None:
+                return self.editor_shortcuts
+            if frame.focus_position == "footer":
+                return self.editor_shortcuts
+            return self.body_shortcuts
+        except Exception:
             return self.editor_shortcuts
-        else:
-            return self.list_shortcuts
 
 class ListEntry(urwid.Text):
     _selectable = True
@@ -1792,18 +1804,16 @@ class ListEntry(urwid.Text):
         self._emit('click')
         return True
 
-class MessageEdit(urwid.Edit):
+class MessageEdit(ReadlineMixin, urwid.Edit):
     def keypress(self, size, key):
         if key == "ctrl d":
             self.delegate.send_message()
         elif key == "ctrl p":
             self.delegate.paper_message()
-        elif key == "ctrl a":
+        elif key == "ctrl f":
             self.delegate.attach_file()
         elif key == "ctrl s":
             self.delegate.save_focused_attachments()
-        elif key == "ctrl k":
-            self.delegate.clear_editor()
         elif key == "up":
             y = self.get_cursor_coords(size)[1]
             if y == 0:
@@ -1820,6 +1830,18 @@ class MessageEdit(urwid.Edit):
 
 
 class ConversationFrame(urwid.Frame):
+    @property
+    def focus_position(self):
+        return urwid.Frame.focus_position.fget(self)
+
+    @focus_position.setter
+    def focus_position(self, part):
+        urwid.Frame.focus_position.fset(self, part)
+        try:
+            nomadnet.NomadNetworkApp.get_shared_instance().ui.main_display.update_active_shortcuts()
+        except Exception:
+            pass
+
     def keypress(self, size, key):
         if self.focus_position == "header":
             result = super(ConversationFrame, self).keypress(size, key)
@@ -1846,8 +1868,6 @@ class ConversationFrame(urwid.Frame):
                 self.focus_position = "footer"
             else:
                 return super(ConversationFrame, self).keypress(size, key)
-        elif key == "ctrl k":
-            self.delegate.clear_editor()
         else:
             return super(ConversationFrame, self).keypress(size, key)
 
@@ -2198,7 +2218,11 @@ class ConversationWidget(urwid.WidgetWrap):
     def keypress(self, size, key):
         if key == "tab":
             self.toggle_focus_area()
-        elif key == "ctrl w":
+            return None
+        key = super(ConversationWidget, self).keypress(size, key)
+        if key is None:
+            return None
+        if key == "ctrl w":
             self.close()
         elif key == "ctrl u":
             self.conversation.purge_failed()
@@ -2217,7 +2241,7 @@ class ConversationWidget(urwid.WidgetWrap):
         elif key == "ctrl s":
             self.save_focused_attachments()
         else:
-            return super(ConversationWidget, self).keypress(size, key)
+            return key
 
     def _on_conversation_changed_from_callback(self, conversation):
         self.delegate._wake(lambda: self.conversation_changed(conversation))

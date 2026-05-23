@@ -1,5 +1,7 @@
 import urwid
 
+from nomadnet.ui.textui.ReadlineEdit import ReadlineMixin, ReadlineEdit
+
 class DialogLineBox(urwid.LineBox):
     def __init__(self, body, parent=None, title="?"):
         super().__init__(body, title=title)
@@ -12,7 +14,7 @@ class DialogLineBox(urwid.LineBox):
             return None
         return super().keypress(size, key)
 
-class Placeholder(urwid.Edit):
+class Placeholder(ReadlineMixin, urwid.Edit):
     def __init__(self, caption="", edit_text="", placeholder="", **kwargs):
         super().__init__(caption, edit_text, **kwargs)
         self.placeholder = placeholder
@@ -240,7 +242,7 @@ class FormMultiList(urwid.Pile, FormField):
         FormField.__init__(self, config_key, transform)
 
     def create_entry_row(self):
-        edit = urwid.Edit("", "")
+        edit = ReadlineEdit("", "")
         entry_row = urwid.Columns([
             ('weight', 1, edit),
             (3, urwid.Button("×", on_press=lambda button: self.remove_entry(button, entry_row))),
@@ -318,7 +320,7 @@ class FormMultiTable(urwid.Pile, FormField):
         if values is None:
             values = {}
 
-        name_edit = urwid.Edit("", name)
+        name_edit = ReadlineEdit("", name)
 
         columns = [('weight', 3, name_edit)]
 
@@ -330,9 +332,9 @@ class FormMultiTable(urwid.Pile, FormField):
                 widget = urwid.CheckBox("", state=bool(field_value))
             elif field_config.get("type") == "dropdown":
                 # TODO: dropdown in MultiTable
-                widget = urwid.Edit("", str(field_value))
+                widget = ReadlineEdit("", str(field_value))
             else:
-                widget = urwid.Edit("", str(field_value))
+                widget = ReadlineEdit("", str(field_value))
 
             field_widgets[field_key] = widget
             columns.append(('weight', 2, widget))
@@ -451,8 +453,8 @@ class FormKeyValuePairs(urwid.Pile, FormField):
         FormField.__init__(self, config_key, transform)
 
     def create_entry_row(self, key="", value=""):
-        key_edit = urwid.Edit("", key)
-        value_edit = urwid.Edit("", value)
+        key_edit = ReadlineEdit("", key)
+        value_edit = ReadlineEdit("", value)
 
         remove_button = urwid.Button("×", on_press=lambda button: self.remove_entry(button, entry_row))
 

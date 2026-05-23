@@ -10,6 +10,7 @@ from nomadnet.util import strip_modifiers
 from nomadnet.util import sanitize_name
 
 from .Browser import Browser
+from .ReadlineEdit import ReadlineEdit
 
 class NetworkDisplayShortcuts():
     def __init__(self, app):
@@ -415,7 +416,7 @@ class AnnounceStream(urwid.WidgetWrap):
             ('weight', 3, self.tab_pn),
         ], dividechars=1)
 
-        self.search_edit = urwid.Edit(caption="Search: ")
+        self.search_edit = ReadlineEdit(caption="Search: ")
         urwid.connect_signal(self.search_edit, 'change', self.on_search_change)
 
         self.display_toggle = TabButton("Show: Name", on_press=self.toggle_display_mode)
@@ -674,8 +675,8 @@ class KnownNodeInfo(urwid.WidgetWrap):
         r_unknown   = urwid.RadioButton(trust_button_group, "Unknown", state=unknown_selected)
         r_trusted   = urwid.RadioButton(trust_button_group, "Trusted", state=trusted_selected)
 
-        e_name = urwid.Edit(caption="Name      : ",edit_text=display_str)
-        e_sort = urwid.Edit(caption="Sort Rank : ",edit_text=sort_str)
+        e_name = ReadlineEdit(caption="Name      : ",edit_text=display_str)
+        e_sort = ReadlineEdit(caption="Sort Rank : ",edit_text=sort_str)
 
         node_ident = RNS.Identity.recall(source_hash)
         op_hash = None
@@ -1269,7 +1270,7 @@ class LocalPeer(urwid.WidgetWrap):
 
         t_id =           urwid.Text("LXMF Addr : "+RNS.prettyhexrep(self.app.lxmf_destination.hash))
         i_id =           urwid.Text("Identity  : "+RNS.prettyhexrep(self.app.identity.hash))
-        e_name = urwid.Edit(caption="Name      : ", edit_text=display_name)
+        e_name = ReadlineEdit(caption="Name      : ", edit_text=display_name)
 
         def save_query(sender):
             def dismiss_dialog(sender):

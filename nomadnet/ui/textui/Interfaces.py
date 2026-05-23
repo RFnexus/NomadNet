@@ -6,6 +6,7 @@ from math import log10, pow
 
 from nomadnet.vendor.additional_urwid_widgets.FormWidgets import *
 from nomadnet.vendor.AsciiChart import AsciiChart
+from .ReadlineEdit import ReadlineEdit
 
 ### GYLPHS ###
 INTERFACE_GLYPHS = {
@@ -235,8 +236,8 @@ class RNodeCalculator(urwid.WidgetWrap):
         self.link_budget_widget = urwid.Text("Link Budget: Calculating...")
         self.sensitivity_widget = urwid.Text("Sensitivity: Calculating...")
 
-        self.noise_floor_edit = urwid.Edit("", "0")
-        self.antenna_gain_edit = urwid.Edit("", "0")
+        self.noise_floor_edit = ReadlineEdit("", "0")
+        self.antenna_gain_edit = ReadlineEdit("", "0")
 
         layout = urwid.Pile([
             urwid.Divider("-"),

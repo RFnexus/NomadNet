@@ -13,6 +13,7 @@ from nomadnet.ui.textui.MicronParser import LinkableText, LinkSpec
 from RNS.Utilities.rngit.util import MarkdownToMicron
 from RNS.Utilities.rngit.highlight import SyntaxHighlighter
 from .MicronParser import markup_to_attrmaps, default_state, make_style
+from .ReadlineEdit import ReadlineMixin, ReadlineEdit
 from nomadnet.util import sanitize_name, strip_modifiers, strip_micron
 from nomadnet.util import strip_escaped_micron, unescape_micron, strip_non_formatting_tags
 from nomadnet.vendor.Scrollable import Scrollable, ScrollBar
@@ -191,13 +192,19 @@ def _format_ts(ts_ms):
 class ChannelsListShortcuts():
     def __init__(self, app):
         self.app = app
-        self.widget = urwid.AttrMap(urwid.Text("[C-n] New Hub  [C-a] Add Room  [C-r] Connect  [C-w] Disconnect  [C-t] Auto-reconnect  [C-e] Edit Hub  [C-x] Remove  [C-y] Toggle Channels"), "shortcutbar")
+        self.widget = urwid.AttrMap(urwid.Text("[C-n] New Hub  [C-a] Add Room  [C-r] Connect  [C-w] Disconnect  [C-t] Auto-reconnect  [C-e] Edit Hub  [C-x] Remove"), "shortcutbar")
 
 
 class ChannelsRoomShortcuts():
     def __init__(self, app):
         self.app = app
-        self.widget = urwid.AttrMap(urwid.Text("[C-d] Send  [C-w] Leave  [C-k] Clear  [C-u] Users  [C-y] Channels  [F8] Collapse Joins  [Tab] Focus"), "shortcutbar")
+        self.widget = urwid.AttrMap(urwid.Text("[C-d] Send  [C-x] Leave  [F8] Collapse  [Tab] Complete Nick"), "shortcutbar")
+
+
+class ChannelsRoomBodyShortcuts():
+    def __init__(self, app):
+        self.app = app
+        self.widget = urwid.AttrMap(urwid.Text("[C-x] Leave  [C-u] Users  [C-y] Channels  [F8] Collapse Joins  [Tab] ↓ Editor"), "shortcutbar")
 
 
 class ChannelsDialogLineBox(urwid.LineBox):
@@ -381,7 +388,7 @@ class HubInfoArea(urwid.LineBox):
         return super(HubInfoArea, self).keypress(size, key)
 
 
-class RoomMessageEdit(urwid.Edit):
+class RoomMessageEdit(ReadlineMixin, urwid.Edit):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._tab_state = None
@@ -394,14 +401,8 @@ class RoomMessageEdit(urwid.Edit):
         self._tab_state = None
         if key == "ctrl d":
             self.delegate.send_message()
-        elif key == "ctrl k":
-            self.set_edit_text("")
-        elif key == "ctrl w":
+        elif key == "ctrl x":
             self.delegate.leave_room()
-        elif key == "ctrl u":
-            self.delegate.toggle_users()
-        elif key == "ctrl y":
-            self.delegate.display.toggle_channel_list()
         elif key == "f8":
             self.delegate.display.toggle_join_part_collapse()
         elif key == "up":
@@ -484,34 +485,37 @@ class RoomMessageEdit(urwid.Edit):
 
 
 class RoomFrame(urwid.Frame):
+    @property
+    def focus_position(self):
+        return urwid.Frame.focus_position.fget(self)
+
+    @focus_position.setter
+    def focus_position(self, part):
+        urwid.Frame.focus_position.fset(self, part)
+        try:
+            nomadnet.NomadNetworkApp.get_shared_instance().ui.main_display.update_active_shortcuts()
+        except Exception:
+            pass
+
     def keypress(self, size, key):
-        if key == "ctrl u":
-            self.delegate.toggle_users()
-            return None
-        if key == "ctrl y":
-            self.delegate.display.toggle_channel_list()
-            return None
-        if key == "f8":
-            self.delegate.display.toggle_join_part_collapse()
-            return None
-        if key == "tab":
-            rw = self.delegate
-            users_focusable = (
-                rw is not None
-                and getattr(rw, "users_visible", False)
-                and len(rw.columns.contents) > 1
-                and rw.columns.contents[1][0] is rw.users_box
-            )
-            if self.focus_position == "body":
+        if key in ("ctrl u", "ctrl x", "ctrl y", "f8", "tab"):
+            result = super(RoomFrame, self).keypress(size, key)
+            if result != key:
+                return result
+            if key == "ctrl u":
+                self.delegate.toggle_users()
+                return None
+            if key == "ctrl x":
+                self.delegate.leave_room()
+                return None
+            if key == "ctrl y":
+                self.delegate.display.toggle_channel_list()
+                return None
+            if key == "f8":
+                self.delegate.display.toggle_join_part_collapse()
+                return None
+            if self.focus_position != "footer":
                 self.focus_position = "footer"
-            elif users_focusable:
-                try:
-                    rw.columns.focus_position = 1
-                    return None
-                except Exception:
-                    self.focus_position = "body"
-            else:
-                self.focus_position = "body"
             return None
         elif self.focus_position == "body":
             if key == "down" and getattr(self.delegate, "messagelist", None) is not None and self.delegate.messagelist.bottom_is_visible:
@@ -1427,6 +1431,7 @@ class ChannelsDisplay():
 
         self.list_shortcuts = ChannelsListShortcuts(self.app)
         self.room_shortcuts = ChannelsRoomShortcuts(self.app)
+        self.room_body_shortcuts = ChannelsRoomBodyShortcuts(self.app)
         self.shortcuts_display = self.list_shortcuts
 
         self.placeholder = urwid.LineBox(urwid.Filler(urwid.Text("\n  Select or add a hub to begin", align=urwid.CENTER), "top"))
@@ -1539,6 +1544,12 @@ class ChannelsDisplay():
         except Exception:
             focus_path = None
         if focus_path and focus_path[0] == 1 and self.current_room_widget is not None:
+            try:
+                frame = self.current_room_widget.frame
+                if frame is not None and frame.focus_position == "body":
+                    return self.room_body_shortcuts
+            except Exception:
+                pass
             return self.room_shortcuts
         return self.list_shortcuts
 
@@ -1876,8 +1887,8 @@ class ChannelsDisplay():
         self._show_dialog_overlay(dialog)
 
     def new_hub_dialog(self):
-        e_hash = urwid.Edit(caption="Hub address : ", edit_text="")
-        e_name = urwid.Edit(caption="Display name: ", edit_text="")
+        e_hash = ReadlineEdit(caption="Hub address : ", edit_text="")
+        e_name = ReadlineEdit(caption="Display name: ", edit_text="")
         error_text = urwid.Text("")
 
         def dismiss(sender):
@@ -1965,7 +1976,7 @@ class ChannelsDisplay():
             return
         hub = item.hub
 
-        e_name = urwid.Edit(caption="Display name : ", edit_text=hub.name or "")
+        e_name = ReadlineEdit(caption="Display name : ", edit_text=hub.name or "")
         cb_autorcn  = urwid.CheckBox("Auto-reconnect on disconnect", state=hub.auto_reconnect)
         cb_autolist = urwid.CheckBox("Auto-fetch room list on connect", state=hub.auto_list)
         cb_autowho  = urwid.CheckBox("Auto-fetch members on room join", state=hub.auto_who)
@@ -2022,8 +2033,8 @@ class ChannelsDisplay():
             else:
                 return
 
-        e_room = urwid.Edit(caption="Room : #", edit_text="")
-        e_key  = urwid.Edit(caption="Key  : ",  edit_text="", mask="*")
+        e_room = ReadlineEdit(caption="Room : #", edit_text="")
+        e_key  = ReadlineEdit(caption="Key  : ",  edit_text="", mask="*")
         error_text = urwid.Text("")
 
         key_section_placeholder = urwid.WidgetPlaceholder(urwid.Text(""))
