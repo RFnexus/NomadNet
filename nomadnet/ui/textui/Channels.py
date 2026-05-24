@@ -1232,7 +1232,7 @@ def get_nick_color(sender_hash, theme, app, shift=15):
         try: sender_hash = sender_hash.encode("utf-8")
         except: pass
     if not type(sender_hash) == bytes: return theme["nick_peer"]
-    return nick_colors[(int.from_bytes(sender_hash)+shift)%len(nick_colors)]
+    return nick_colors[(int.from_bytes(sender_hash, "big")+shift)%len(nick_colors)]
 
 room_nick_src_cache = {}
 def get_nick_src(hub, room, nick):
