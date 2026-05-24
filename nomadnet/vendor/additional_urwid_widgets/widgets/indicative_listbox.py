@@ -257,10 +257,15 @@ class IndicativeListBox(urwid.WidgetWrap):
         # An event is changed to a modified one ('mouse press' => 'ctrl mouse press'). This prevents the widget from responding
         # when mouse buttons are also used to navigate between widgets.
         if event == self._modifier_key.prepend_to("mouse press"):
-            # Store the focus position before passing the input to the contained list box. That way, it can be compared with the 
+            # Store the focus position before passing the input to the contained list box. That way, it can be compared with the
             # position after the input is processed. If the list box body is empty, store None.
             focus_position_before_input = self.get_selected_position()
-            
+
+            # Also remember the currently selected item itself. A button 1 press makes the contained list box move the focus, but
+            # the off focus highlighting is only (un)done during 'render()' while the widget has the focus. When the selection is
+            # changed by mouse while the widget is unfocused, the highlight would otherwise stay stuck on the previous item.
+            item_before_input = self.get_selected_item()
+
             # left mouse button, if not top bar or bottom bar.
             if (button == 1.0) and (topBar_rows <= row < (size[1] - bottomBar_rows)):
                 # Because 'row' includes the top bar, the offset must be substracted before passing it to the contained list box.
@@ -278,11 +283,20 @@ class IndicativeListBox(urwid.WidgetWrap):
                 was_handeled = self._pass_key_to_contained_listbox(modified_size, "down")
                 
             focus_position_after_input = self.get_selected_position()
-            
-            # If the focus position has changed, execute the hook (if existing).
-            if (focus_position_before_input != focus_position_after_input) and (self.on_selection_change is not None):
-                self.on_selection_change(focus_position_before_input,
-                                         focus_position_after_input)
+
+            if focus_position_before_input != focus_position_after_input:
+                # The mouse moved the selection. If off focus highlighting is currently applied (the widget is unfocused), restore
+                # the previously selected item and clear the stored state, so the next 'render()' re-applies the highlight to the
+                # newly selected item instead of leaving it stuck on the old one.
+                if (not self._last_focus_state) and (self._original_item_attr_map is not None) and (item_before_input is not None):
+                    item_before_input.set_attr_map(self._original_item_attr_map)
+                    self._original_item_attr_map = None
+                    self._last_focus_state = None
+
+                # If the focus position has changed, execute the hook (if existing).
+                if self.on_selection_change is not None:
+                    self.on_selection_change(focus_position_before_input,
+                                             focus_position_after_input)
         
         return was_handeled
     
