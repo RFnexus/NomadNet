@@ -39,11 +39,11 @@ class Conversation:
             dn = LXMF.display_name_from_app_data(app_data)
             app_data = b""
             if dn != None: app_data = dn.encode("utf-8")
-            
+
             # Add the announce to the directory announce
             # stream logger
             app.directory.lxmf_announce_received(destination_hash, app_data)
-            
+
         else:
             RNS.log("Ignored announce from "+RNS.prettyhexrep(destination_hash), RNS.LOG_DEBUG)
 
@@ -345,7 +345,7 @@ class Conversation:
 
                     print_result = self.app.print_file(qr_tmp_path)
                     os.unlink(qr_tmp_path)
-                    
+
                     if print_result:
                         message_path = Conversation.ingest(lxm, self.app, originator=True)
                         self.messages.append(ConversationMessage(message_path))
@@ -411,12 +411,18 @@ class Conversation:
 
 
 class ConversationMessage:
+    # Sentinel marking the renderer as not yet cached, so that a real
+    # cached value of None (no renderer field) can be told apart from a
+    # cache miss without forcing a disk load.
+    _RENDERER_UNSET = object()
+
     def __init__(self, file_path):
         self.file_path = file_path
         self.loaded    = False
         self.timestamp = None
         self.lxm       = None
 
+        self._cached_renderer = ConversationMessage._RENDERER_UNSET
         self._cached_hash = None
         self._cached_state = None
         self._cached_title = None
@@ -472,6 +478,14 @@ class ConversationMessage:
             if self._cached_signature_validated is None:
                 self._cached_signature_validated = self.lxm.signature_validated
             self._cached_method = self.lxm.method
+            if hasattr(self.lxm, "get_fields"):
+                _fields = self.lxm.get_fields()
+                if _fields and isinstance(_fields, dict) and LXMF.FIELD_RENDERER in _fields:
+                    self._cached_renderer = _fields[LXMF.FIELD_RENDERER]
+                else:
+                    self._cached_renderer = None
+            else:
+                self._cached_renderer = None
             if self._cached_unverified_reason is None and hasattr(self.lxm, "unverified_reason"):
                 self._cached_unverified_reason = self.lxm.unverified_reason
             self._cached_title = self.lxm.title_as_string()
@@ -629,14 +643,14 @@ class ConversationMessage:
         return {}
 
     def content_renderer(self):
-        if not self.loaded: self.load()
-        if self.lxm and hasattr(self.lxm, "get_fields"):
-            fields = self.lxm.get_fields()
-            if fields and isinstance(fields, dict):
-                if LXMF.FIELD_RENDERER in fields:
-                    return fields[LXMF.FIELD_RENDERER]
-
-        return None
+        if self._cached_renderer is not ConversationMessage._RENDERER_UNSET:
+            return self._cached_renderer
+        if not self.loaded:
+            self.load()
+        # load() sets _cached_renderer on success; if it failed, lxm is None
+        if self._cached_renderer is ConversationMessage._RENDERER_UNSET:
+            return None
+        return self._cached_renderer
 
     def has_attachments(self):
         if self._cached_has_attachments is not None:
@@ -942,6 +956,7 @@ class ConversationMessage:
             "signature_validated": self._cached_signature_validated,
             "unverified_reason": self._cached_unverified_reason,
             "method": self._cached_method,
+            "renderer": None if self._cached_renderer is ConversationMessage._RENDERER_UNSET else self._cached_renderer,
             "has_attachments": self._cached_has_attachments,
             "attachment_names": self._cached_attachment_names,
         }
@@ -958,6 +973,7 @@ class ConversationMessage:
         self._cached_signature_validated = entry.get("signature_validated")
         self._cached_unverified_reason = entry.get("unverified_reason")
         self._cached_method = entry.get("method")
+        self._cached_renderer = entry.get("renderer", ConversationMessage._RENDERER_UNSET)
         self._cached_has_attachments = entry.get("has_attachments")
         self._cached_attachment_names = entry.get("attachment_names")
 

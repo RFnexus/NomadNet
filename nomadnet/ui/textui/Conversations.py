@@ -2229,12 +2229,12 @@ class ConversationWidget(urwid.WidgetWrap):
 
     def update_message_widgets(self, replace = False):
         self.message_widgets = []
-        added_hashes = []
+        added_hashes = set()
         needs_index = []
         for message in self.conversation.messages:
             message_hash = message.get_hash()
             if not message_hash in added_hashes:
-                added_hashes.append(message_hash)
+                added_hashes.add(message_hash)
                 was_loaded = message.loaded
                 try:
                     message_widget = LXMessageWidget(message, theme=self.app.config["textui"]["theme"], conversation_widget=self)
