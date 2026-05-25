@@ -6,6 +6,7 @@ import time
 import RNS
 from urwid.util import is_mouse_press
 from urwid.text_layout import calc_coords
+from .ReadlineEdit import ReadlineEdit
 from RNS.Utilities.rngit.util import MarkdownToMicron
 
 DEFAULT_FG_DARK  = "ddd"
@@ -360,7 +361,7 @@ def parse_line(line, state, url_delegate):
                             fn = o["name"]
                             fs = o["style"]
                             fmask = "*" if o["masked"] else None
-                            f = urwid.Edit(caption="", edit_text=fd, align=state["align"], multiline=True, mask=fmask)
+                            f = ReadlineEdit(caption="", edit_text=fd, align=state["align"], multiline=True, mask=fmask)
                             f.field_name = fn
                             fa = urwid.AttrMap(f, fs)
                             widgets.append((fw, fa))

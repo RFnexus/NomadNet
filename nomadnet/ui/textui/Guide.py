@@ -190,7 +190,7 @@ class TopicList(urwid.WidgetWrap):
     def keypress(self, size, key):
         if key == "up" and (self.ilb.first_item_is_selected()):
             nomadnet.NomadNetworkApp.get_shared_instance().ui.main_display.frame.focus_position = "header"
-            
+
         return super(TopicList, self).keypress(size, key)
 
 class GuideDisplay():
@@ -307,16 +307,68 @@ The different sections of the program has a number of keyboard shortcuts mapped,
  - Ctrl-E   Display and edit selected peer info
  - Ctrl-X   Delete conversation
  - Ctrl-R   Open LXMF syncronisation dialog
-
->>>Conversation Display
- - Ctrl-D   Send message
- - Ctrl-K   Clear input fields
- - Ctrl-T   Toggle message title field
+ - Ctrl-U   Ingest LXMF URI
  - Ctrl-O   Toggle sort mode
- - Ctrl-P   Purge failed messages
+ - Ctrl-P   Display own LXMF address
+ - Ctrl-G   Toggle fullscreen
+
+>>>Message Editor
+ - Ctrl-D   Send message
+ - Ctrl-P   Compose paper message
+ - Ctrl-T   Toggle message title field
+ - Ctrl-F   Attach file
+ - Ctrl-S   Save focused attachment
+ - Tab      Switch focus to message list
+
+>>>Message List
+ - Ctrl-W   Close conversation
+ - Ctrl-U   Purge failed messages
+ - Ctrl-O   Toggle sort mode
  - Ctrl-X   Clear conversation history
  - Ctrl-G   Toggle fullscreen conversation
- - Ctrl-W   Close conversation
+ - Ctrl-S   Save focused attachment
+ - Tab      Switch focus to message editor
+
+>>`!Channels Window`!
+>>>Channel List
+ - Ctrl-N   Add a new hub
+ - Ctrl-A   Add (join) a room
+ - Ctrl-R   Connect to selected hub
+ - Ctrl-W   Disconnect from selected hub
+ - Ctrl-T   Toggle auto-reconnect for selected hub
+ - Ctrl-E   Edit selected hub
+ - Ctrl-X   Remove selected hub
+ - F8       Toggle join/part collapse
+
+>>>Message Editor
+ - Ctrl-D   Send message
+ - Ctrl-X   Leave current room
+ - F8       Toggle join/part collapse
+ - Tab      Complete nickname
+
+>>>Message List
+ - Ctrl-X   Leave current room
+ - Ctrl-U   Toggle users pane
+ - Ctrl-Y   Toggle channel list
+ - F8       Toggle join/part collapse
+ - Tab      Switch focus to message editor
+
+>>`!Input Field Editing`!
+All text input fields support readline-style editing shortcuts. When an input
+field is focused, these take precedence over any window shortcut mapped to the
+same key (so, for example, Ctrl-U edits the line rather than toggling a pane):
+ - Ctrl-A      Move to beginning of line
+ - Ctrl-E      Move to end of line
+ - Ctrl-U      Delete from cursor to beginning of line
+ - Ctrl-K      Delete from cursor to end of line
+ - Ctrl-W      Delete previous word (whitespace-delimited)
+ - Ctrl-L      Delete the entire buffer
+ - Ctrl-Y      Paste (yank) most recently deleted text
+ - Ctrl-Left   Move backward one word
+ - Ctrl-Right  Move forward one word
+
+Text deleted with Ctrl-U, Ctrl-K, Ctrl-W or Ctrl-L is placed in a shared yank
+buffer that Ctrl-Y pastes back, so text can be moved between input fields.
 
 >>`!Network Window`!
 >>>Browser
@@ -491,29 +543,29 @@ Links can be inserted into micron documents. See the `*Markup`* section of this 
 
 TOPIC_INTERFACES   = '''>Interfaces
 
-Reticulum supports using many kinds of devices as networking interfaces, and allows you to mix and match them in any way you choose. 
+Reticulum supports using many kinds of devices as networking interfaces, and allows you to mix and match them in any way you choose.
 
 The number of distinct network topologies you can create with Reticulum is more or less endless, but common to them all is that you will need to define one or more interfaces for Reticulum to use.
 
 The `![ Interfaces ]`! section of NomadNet lets you add, monitor, and update interfaces configured for your Reticulum instance.
 
-If you are starting NomadNet for the first time you will find that an `!AutoInterface`! has been added by default. This interface will try to use your available network device to communicate with other peers discovered on your local network. 
+If you are starting NomadNet for the first time you will find that an `!AutoInterface`! has been added by default. This interface will try to use your available network device to communicate with other peers discovered on your local network.
 
-Interfaces come in many different types and can interact with physical mediums like LoRa radios or standard IP networks. 
+Interfaces come in many different types and can interact with physical mediums like LoRa radios or standard IP networks.
 
 >>Viewing Interfaces
 
-To view more info about an interface, navigate using the `!Up`! and `!Down`! arrow keys or by clicking with the mouse. Pressing `! < Enter >`! on a selected interface will bring you to a detailed interface view, which will show configuration parameters and realtime charts. From here you can also disable or edit the interface. To change the orientation of the TX/RX charts, press `!< V >`! for a vertical layout, and `!< H >`! for a horizontal view. 
+To view more info about an interface, navigate using the `!Up`! and `!Down`! arrow keys or by clicking with the mouse. Pressing `! < Enter >`! on a selected interface will bring you to a detailed interface view, which will show configuration parameters and realtime charts. From here you can also disable or edit the interface. To change the orientation of the TX/RX charts, press `!< V >`! for a vertical layout, and `!< H >`! for a horizontal view.
 
 >>Updating Interfaces
 
-To edit an interface, select the interface and press `!< Ctrl + E >`!. 
+To edit an interface, select the interface and press `!< Ctrl + E >`!.
 
 To remove an interface, select the interface and press `!< Ctrl + X >`!. You can also perform both of these actions  from the details view.
 
 >>Adding Interfaces
 
-To add a new interface, press `!< Ctrl + A >`!. From here you can select which type of interface you want to add. Each unique interface type will have different configuration options. 
+To add a new interface, press `!< Ctrl + A >`!. From here you can select which type of interface you want to add. Each unique interface type will have different configuration options.
 
 `Ffff`! (!) Note:`! After adding or modifying interfaces, you will need to restart NomadNet or your Reticulum instance for changes to take effect.`f`b
 
@@ -548,14 +600,14 @@ Target Port: Port number to connect to
 
 Optional Parameters:
 I2P Tunneled: Enable for connecting through I2P
-KISS Framing: Enable for KISS framing for software modems 
+KISS Framing: Enable for KISS framing for software modems
 ```
 
 This interface is commonly used to connect to Reticulum gateways or other persistent nodes on the Internet.
 
 >>TCPServerInterface
 
-The TCP Server interface listens for incoming connections, allowing other Reticulum peers to connect to your node using TCPClientInterface. 
+The TCP Server interface listens for incoming connections, allowing other Reticulum peers to connect to your node using TCPClientInterface.
 
 ```
 Required Parameters:
@@ -603,7 +655,7 @@ The RNode interface allows using LoRa transceivers running RNode firmware as Ret
 Required Parameters:
 Port: Serial port or BLE device path
 Frequency: Operating frequency in MHz
-Bandwidth: Channel bandwidth 
+Bandwidth: Channel bandwidth
 TX Power: Transmit power in dBm
 Spreading Factor: LoRa spreading factor (7-12)
 Coding Rate: LoRa coding rate (4:5-4:8)
@@ -614,7 +666,7 @@ ID Interval: Identification interval in seconds
 Airtime Limits: Control duty cycle
 ```
 
-The interface includes a parameter calculator to estimate link budget, sensitivity, and data rate on the air based on your settings. 
+The interface includes a parameter calculator to estimate link budget, sensitivity, and data rate on the air based on your settings.
 
 >>RNodeMultiInterface
 
@@ -648,7 +700,7 @@ The KISS interface supports packet radio modems and TNCs using the KISS protocol
 Required Parameters:
 
 Port: Serial port path
-Speed: Baud rate of serial device 
+Speed: Baud rate of serial device
 Databits: Number of data bits
 Parity: Parity setting
 Stopbits: Number of stop bits
@@ -1445,7 +1497,7 @@ If no heading text is defined, the section will appear as a sub-section without 
 
 Tags are used to format text with micron. Some tags can appear anywhere in text, and some must appear at the beginning of a line. If you need to write text that contains a sequence that would be interpreted as a tag, you can escape it with the character \\.
 
-In the following sections, the different tags will be introduced. Any styling set within micron can be reset to the default style by using the special \\`\\` tag anywhere in the markup, which will immediately remove any formatting previously specified. 
+In the following sections, the different tags will be introduced. Any styling set within micron can be reset to the default style by using the special \\`\\` tag anywhere in the markup, which will immediately remove any formatting previously specified.
 
 >>Alignment
 
@@ -1646,7 +1698,7 @@ If you want to link to an anchor on another page, you can include it as a reques
 
 >>Notes on namespaces and collisions
 
-Auto-anchors from headings and explicit \\`: anchors share a single namespace per page. If an explicit anchor collides with a heading slug, the first one declared is where it will jump to. 
+Auto-anchors from headings and explicit \\`: anchors share a single namespace per page. If an explicit anchor collides with a heading slug, the first one declared is where it will jump to.
 
 >Tables
 
@@ -1761,7 +1813,7 @@ Full control: `B444`<!32|all_options`hidden text>`B333
 
 >>> Checkboxes
 
-In addition to text fields, Checkboxes are another way of submitting data. They allow the user to make a single selection or select multiple options. 
+In addition to text fields, Checkboxes are another way of submitting data. They allow the user to make a single selection or select multiple options.
 
 `Faaa
 `=
@@ -1827,7 +1879,7 @@ This line will
 
 >Partials
 
-You can include partials in pages, which will load asynchronously once the page itself has loaded. 
+You can include partials in pages, which will load asynchronously once the page itself has loaded.
 
 `Faaa
 `=

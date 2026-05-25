@@ -15,6 +15,7 @@ from nomadnet.vendor.Scrollable import *
 from nomadnet.util import strip_modifiers
 from nomadnet.util import sanitize_name
 from .Helpers import ClickableIcon, osc52_copy
+from .ReadlineEdit import ReadlineMixin, ReadlineEdit
 
 class BrowserFrame(urwid.Frame):
     def keypress(self, size, key):
@@ -1829,12 +1830,9 @@ class UrlDialogLineBox(urwid.LineBox):
         else:
             return super(UrlDialogLineBox, self).keypress(size, key)
 
-class UrlEdit(urwid.Edit):
+class UrlEdit(ReadlineMixin, urwid.Edit):
     def keypress(self, size, key):
         if key == "enter":
             self.confirmed(self)
-        elif key == "ctrl k":
-            self.set_edit_text("")
-            self.set_edit_pos(0)
         else:
             return super(UrlEdit, self).keypress(size, key)
