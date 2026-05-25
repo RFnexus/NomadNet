@@ -1458,7 +1458,17 @@ class ChannelsDisplay():
         if isinstance(prev, RoomWidget) and prev is not widget:
             self._save_room_draft(prev)
         self.right = widget
-        self._apply_channel_list_visibility(focus_right=True)
+        if widget is self.placeholder:
+            # The placeholder has nothing to interact with, so always keep the
+            # hub/channel pane visible (and focused) beside it.
+            self.channel_list_visible = True
+            self._apply_channel_list_visibility(focus_right=False)
+            try:
+                self.columns_widget.focus_position = 0
+            except Exception:
+                pass
+        else:
+            self._apply_channel_list_visibility(focus_right=True)
 
     def _draft_key(self, hub, room):
         try:
