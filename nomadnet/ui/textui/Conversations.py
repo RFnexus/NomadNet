@@ -1304,7 +1304,7 @@ class ConversationsDisplay():
     def _pn_dropdown_label(self, pn_hash, meta):
         name = (meta or {}).get("name")
         if name:
-            label = strip_modifiers(name) or ""
+            label = sanitize_name(name) or ""
             label = " ".join(label.split())
         else:
             label = ""
@@ -1510,9 +1510,9 @@ class ConversationsDisplay():
                 sync_progress,
                 urwid.Divider(g["divider1"]),
             ]
+            pile_items += [button_columns, urwid.Text(""), r_mall, rbs]
             if node_selector is not None:
-                pile_items += [node_selector, urwid.Divider(g["divider1"])]
-            pile_items += [r_mall, rbs, urwid.Text(""), button_columns]
+                pile_items += [urwid.Divider(g["divider1"]), node_selector]
 
             dialog = DialogLineBox(urwid.Pile(pile_items), title="Message Sync")
         else:
