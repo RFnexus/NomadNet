@@ -128,9 +128,8 @@ class Node:
                     allowed_input = allowed_result.stdout
 
                 else:
-                    fh = open(allowed_path, "rb")
-                    allowed_input = fh.read()
-                    fh.close()
+                    with open(allowed_path, "rb") as fh:
+                        allowed_input = fh.read()
 
                 allowed_hash_strs = allowed_input.splitlines()
 
@@ -176,9 +175,8 @@ class Node:
                     generated = subprocess.run([file_path], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env_map)
                     return generated.stdout
                 else:
-                    fh = open(file_path, "rb")
-                    response_data = fh.read()
-                    fh.close()
+                    with open(file_path, "rb") as fh:
+                        response_data = fh.read()
                     return response_data
             else:
                 RNS.log("Request denied", RNS.LOG_VERBOSE)

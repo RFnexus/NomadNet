@@ -97,9 +97,8 @@ class Directory:
                 "announce_stream": self.announce_stream
             }
 
-            file = open(self.app.directorypath, "wb")
-            file.write(msgpack.packb(directory))
-            file.close()
+            with open(self.app.directorypath, "wb") as file:
+                file.write(msgpack.packb(directory))
 
         except Exception as e:
             RNS.log("Could not write directory to disk. Then contained exception was: "+str(e), RNS.LOG_ERROR)
@@ -107,10 +106,9 @@ class Directory:
     def load_from_disk(self):
         if os.path.isfile(self.app.directorypath):
             try:
-                file = open(self.app.directorypath, "rb")
-                unpacked_directory = msgpack.unpackb(file.read())
+                with open(self.app.directorypath, "rb") as file:
+                    unpacked_directory = msgpack.unpackb(file.read())
                 unpacked_list = unpacked_directory["entry_list"]
-                file.close()
 
                 entries = {}
                 for e in unpacked_list:
