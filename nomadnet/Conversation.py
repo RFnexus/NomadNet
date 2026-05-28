@@ -24,15 +24,13 @@ class Conversation:
 
         if not destination_hash in app.ignored_list:
             destination_hash_text = RNS.hexrep(destination_hash, delimit=False)
-            # Check if the announced destination is in
-            # our list of conversations
-            if destination_hash_text in [e[0] for e in Conversation.conversation_list(app)]:
-                if app.directory.find(destination_hash):
-                    if Conversation.created_callback != None:
-                        Conversation.created_callback()
-                else:
-                    if Conversation.created_callback != None:
-                        Conversation.created_callback()
+            # Notify if the announced destination is one of our
+            # existing conversations. Checking the directory directly
+            # avoids scanning and opening every conversation on disk
+            # for each announce received.
+            if os.path.isdir(app.conversationpath + "/" + destination_hash_text):
+                if Conversation.created_callback != None:
+                    Conversation.created_callback()
 
             # This reformats the new v0.5.0 announce data back to the expected format
             # for nomadnets storage and other handling functions.
