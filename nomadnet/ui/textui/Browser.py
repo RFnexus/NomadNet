@@ -270,7 +270,8 @@ class Browser:
 
         # In-document anchor link (#name or empty #)
         if link_target.startswith("#"):
-            self._jump_to_anchor(link_target[1:])
+            def df(loop, user_data): self._jump_to_anchor(link_target[1:])
+            nomadnet.NomadNetworkApp.get_shared_instance().ui.loop.set_alarm_in(0.0, df)
             return
 
         # rrc://<hex>[:<dest_name>]/<room> URL form
@@ -1287,6 +1288,10 @@ class Browser:
                 self.history_inc = False
                 self.reloading = False
 
+            if self.request_data and "var_anchor" in self.request_data:
+                def df(loop, user_data): self._jump_to_anchor(self.request_data["var_anchor"])
+                nomadnet.NomadNetworkApp.get_shared_instance().ui.loop.set_alarm_in(0.0, df)
+
         else:
             if self.destination_hash != self.loopback:
                 load_thread = threading.Thread(target=self.__load)
@@ -1361,6 +1366,10 @@ class Browser:
                     self.history_dec = False
                     self.history_inc = False
                     self.reloading = False
+
+                if self.request_data and "var_anchor" in self.request_data:
+                    def df(loop, user_data): self._jump_to_anchor(self.request_data["var_anchor"])
+                    nomadnet.NomadNetworkApp.get_shared_instance().ui.loop.set_alarm_in(0.0, df)
 
 
     def __load(self):
@@ -1537,7 +1546,8 @@ class Browser:
                 self.cache_page(cache_time)
 
             if self.request_data and "var_anchor" in self.request_data:
-                self._jump_to_anchor(self.request_data["var_anchor"])
+                def df(loop, user_data): self._jump_to_anchor(self.request_data["var_anchor"])
+                nomadnet.NomadNetworkApp.get_shared_instance().ui.loop.set_alarm_in(0.0, df)
 
         except Exception as e:
             RNS.log("An error occurred while handling response. The contained exception was: "+str(e))

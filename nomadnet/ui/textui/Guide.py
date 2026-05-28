@@ -106,7 +106,8 @@ class GuideLinkDelegate:
         if target.startswith("#"):
             if self.reader is not None:
                 try:
-                    self.reader.jump_to_anchor(target[1:])
+                    def df(loop, user_data): self.reader.jump_to_anchor(target[1:])
+                    nomadnet.NomadNetworkApp.get_shared_instance().ui.loop.set_alarm_in(0.0, df)
                 except Exception as e:
                     RNS.log("Guide anchor jump failed: "+str(e), RNS.LOG_ERROR)
             return
@@ -293,7 +294,7 @@ Nomad Network is build on LXMF and Reticulum, which together provides the crypto
 
 Nomad Network does not need any connections to the public internet to work. In fact, it doesn't even need an IP or Ethernet network. You can use it entirely over packet radio, LoRa or even serial lines. But if you wish, you can bridge islanded Reticulum networks over the Internet or private ethernet networks, or you can build networks running completely over the Internet. The choice is yours.
 
-The current version of the program should be considered a beta release. The program works well, but there will most probably be bugs and possibly sub-optimal performance in some scenarios. On the other hand, this is the best time to have an influence on the direction of the development of Nomad Network. To do so, join the discussion on the Nomad Network project at `_`F00f`[Aleph git`a8d24177d946de4f1f0a0fe1af9a1338:/page/index.mu]`f`_.
+The current version of the program should be considered a beta release. The program works well, but there will most probably be bugs and possibly sub-optimal performance in some scenarios. On the other hand, this is the best time to have an influence on the direction of the development of Nomad Network. To do so, join the discussion on the Nomad Network project at `_`F79d`[Aleph git`a8d24177d946de4f1f0a0fe1af9a1338:/page/index.mu]`f`_.
 
 '''
 
@@ -1623,7 +1624,7 @@ Here is a link without any label: `[72914442a3689add83a09a767963f57c:/page/index
 
 This is a `[labeled link`72914442a3689add83a09a767963f57c:/page/index.mu] to the same page, but it's hard to see if you don't know it
 
-Here is `F00a`_`[a more visible link`72914442a3689add83a09a767963f57c:/page/index.mu]`_`f
+Here is `F79d`_`[a more visible link`72914442a3689add83a09a767963f57c:/page/index.mu]`_`f
 `=
 ``
 
@@ -1635,7 +1636,7 @@ Here is a link without any label: `[72914442a3689add83a09a767963f57c:/page/index
 
 This is a `[labeled link`72914442a3689add83a09a767963f57c:/page/index.mu] to the same page, but it's hard to see if you don't know it
 
-Here is `F00f`_`[a more visible link`72914442a3689add83a09a767963f57c:/page/index.mu]`_`f
+Here is `F79d`_`[a more visible link`72914442a3689add83a09a767963f57c:/page/index.mu]`_`f
 
 ``
 
@@ -1726,7 +1727,7 @@ The above markup produces the following table:
 
 >Fields & Requests
 
-Nomad Network let's you use simple input fields for submitting data to node-side applications. Submitted data, along with other session variables will be available to the node-side script / program as environment variables.
+Nomad Network lets you use simple input fields for submitting data to node-side applications. Submitted data, along with other session variables will be available to the node-side script / program as environment variables.
 
 >>Request Links
 
