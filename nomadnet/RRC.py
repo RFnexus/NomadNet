@@ -720,6 +720,7 @@ class RRCHub:
     def _load_history(self):
         with self._lock:
             rooms = list(self.messages.keys())
+        filter_msgs = self._filter_history()
         for room in rooms:
             if not self._persistable_room(room):
                 continue
@@ -732,38 +733,32 @@ class RRCHub:
                 with open(path, "rb") as f:
                     while True:
                         try:
-                            window.append(cbor.load(f))
+                            entry = cbor.load(f)
                         except EOFError:
                             break
                         except Exception as ex:
                             decode_error = ex
                             break
+                        m = self._msg_from_entry(room, entry)
+                        if m is None:
+                            continue
+                        if filter_msgs and (m.kind == "system" or m.kind == "notice"):
+                            continue
+                        window.append(m)
             except OSError as ex:
                 self._log("history load failed for #"+room+": "+str(ex), RNS.LOG_ERROR)
                 continue
             if decode_error is not None:
                 self._log("history file for #"+room+" is corrupt, truncating to last "+str(len(window))+" valid messages: "+str(decode_error), RNS.LOG_ERROR)
-            msgs = []
-            filter_msgs = self._filter_history()
-            for e in window:
-                m = self._msg_from_entry(room, e)
-                if m is not None:
-                    if filter_msgs:
-                        should_filter = False
-                        if   m.kind == "system": should_filter = True
-                        elif m.kind == "notice": should_filter = True
-                        if should_filter: continue
-
-                    msgs.append(m)
             with self._lock:
-                self.messages[room] = msgs
+                self.messages[room] = list(window)
 
     def _clean_history(self):
         now = time.time()
         cleaned = False
         remove_after = self._ephemeral_notices_history()
         if now > self._last_history_clean + self.CLEAN_HISTORY_INTERVAL:
-            RNS.log(f"Cleaning loaded message history", RNS.LOG_DEBUG) 
+            RNS.log(f"Cleaning loaded message history", RNS.LOG_DEBUG)
             with self._lock:
                 try:
                     for r in self.messages:
