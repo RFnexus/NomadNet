@@ -136,10 +136,32 @@ def _scan_nick_mentions(text, own_nick):
         if nick.lower() != own_nick:
             yield m.start(), m.end(), f"nick_mention", nick
 
+def _scan_code_blocks(text):
+    regions = []
+    fence_re = re.compile(r'```[^\n]*\n.*?```', re.DOTALL)
+    for m in fence_re.finditer(text): regions.append((m.start(), m.end()))
+
+    inline_re = re.compile(r'(?<!`)`[^`\n]+`')
+    for m in inline_re.finditer(text):
+        if not any(s <= m.start() < e for s, e in regions):
+            regions.append((m.start(), m.end()))
+
+    regions.sort()
+    return regions
+
 def _body_markup(body, body_attr="body_text", own_nick=None, check_links=True):
+    code_blocks = _scan_code_blocks(body)
     spans = list(_scan_links(body))
     spans.extend(_scan_mentions(body, own_nick))
     spans.extend(_scan_nick_mentions(body, own_nick))
+
+    def overlaps_code(span_start, span_end):
+        for r_start, r_end in code_blocks:
+            if span_start < r_end and span_end > r_start:  return True
+        return False
+
+    spans = [(s, e, k, t) for s, e, k, t in spans if not overlaps_code(s, e)]
+
     spans.sort(key=lambda s: s[0])
     filtered = []
     last_end = 0
