@@ -240,6 +240,9 @@ class RRCHub:
         self.auto_who = False
 
         self._lock = threading.RLock()
+        # we need this lock to serialize writes on non-*nix systems where O_APPEND
+        # write()'s apparently aren't guaranteed to be atomic
+        self._history_io_lock = threading.Lock()
         self._resource_expectations = {}
         self._sent_ids = deque(maxlen=256)
 
@@ -699,8 +702,10 @@ class RRCHub:
         try:
             self.manager._ensure_history_dir(self)
             path = self.manager._history_path(self, room)
-            with open(path, "ab") as f:
-                f.write(cbor.encode(self._entry_for(msg)))
+            payload = cbor.encode(self._entry_for(msg))
+            with self._history_io_lock:
+                with open(path, "ab") as f:
+                    f.write(payload)
             self._history_write_failed = False
         except Exception as e:
             if not self._history_write_failed:
@@ -712,8 +717,9 @@ class RRCHub:
             return
         path = self.manager._history_path(self, room)
         try:
-            if os.path.isfile(path):
-                os.unlink(path)
+            with self._history_io_lock:
+                if os.path.isfile(path):
+                    os.unlink(path)
         except Exception:
             pass
 
