@@ -217,6 +217,86 @@ def render_table(lines, state, url_delegate):
     
     return widgets if widgets else None
 
+class FormColumns(urwid.Columns):
+
+    MIN_FIELD_WIDTH = 4
+
+    
+    def _natural_width(widget, maxcol, focused):
+        # mirror the width urwid.Columns itself computes for a PACK column
+        if not isinstance(widget, urwid.Widget):
+            return 0
+        sizing = widget.sizing()
+        if sizing & frozenset((urwid.FIXED, urwid.FLOW)):
+            width = 0
+            if urwid.FIXED in sizing:
+                width = widget.pack((), focused)[0]
+            if urwid.FLOW in sizing and (not width or width > maxcol):
+                width = widget.pack((maxcol,), focused)[0]
+            return width
+        return widget.pack((maxcol,), focused)[0]
+
+    def column_widths(self, size, focus=False):
+        contents = self.contents
+        field_idxs = [i for i, (w, (t, n, b)) in enumerate(contents) if t == urwid.GIVEN]
+
+        if not field_idxs:
+            return super().column_widths(size, focus)
+
+        maxcol = size[0]
+        nat = []
+        for i, (w, (t, width, b)) in enumerate(contents):
+            if t == urwid.GIVEN:
+                nat.append(width)
+            elif t == urwid.PACK:
+                nat.append(self._natural_width(w, maxcol, focus and i == self.focus_position))
+            else:
+                return super().column_widths(size, focus)
+
+        dividers = self.dividechars * max(0, len(nat) - 1)
+        field_set = set(field_idxs)
+        fixed = sum(w for i, w in enumerate(nat) if i not in field_set)
+        requested = sum(nat[i] for i in field_idxs)
+        available = maxcol - dividers - fixed
+
+        if available >= requested:
+            return super().column_widths(size, focus)
+
+        if available < self.MIN_FIELD_WIDTH * len(field_idxs):
+
+            return super().column_widths(size, focus)
+
+
+
+
+
+
+        overflow = requested - available
+        slack = {i: max(0, nat[i] - self.MIN_FIELD_WIDTH) for i in field_idxs}
+        total_slack = sum(slack.values())
+        if total_slack < overflow:
+            return super().column_widths(size, focus)
+
+        widths = list(nat)
+        removed = {i: min(slack[i], overflow * slack[i] // total_slack) for i in field_idxs}
+        shortfall = overflow - sum(removed.values())
+        # Hand out any rounding remainder one column at a time.
+        pending = [i for i in field_idxs if removed[i] < slack[i]]
+        k = 0
+        while shortfall > 0 and pending:
+            i = pending[k % len(pending)]
+            removed[i] += 1
+            shortfall -= 1
+            if removed[i] >= slack[i]:
+                pending = [j for j in pending if removed[j] < slack[j]]
+                k = 0
+            else:
+                k += 1
+        for i in field_idxs:
+            widths[i] = nat[i] - removed[i]
+        return widths
+
+
 def parse_line(line, state, url_delegate):
     pre_escape = False
     if len(line) > 0:
@@ -396,7 +476,7 @@ def parse_line(line, state, url_delegate):
 
 
 
-                columns_widget = urwid.Columns(widgets, dividechars=0)
+                columns_widget = FormColumns(widgets, dividechars=0)
                 text_widget = columns_widget
                 # text_widget = urwid.Text("<"+output+">", align=state["align"])
 
