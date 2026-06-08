@@ -7,6 +7,7 @@ from math import log10, pow
 from nomadnet.vendor.additional_urwid_widgets.FormWidgets import *
 from nomadnet.vendor.AsciiChart import AsciiChart
 from .ReadlineEdit import ReadlineEdit
+from .Helpers import ClickableIcon
 
 ### GYLPHS ###
 INTERFACE_GLYPHS = {
@@ -1123,7 +1124,7 @@ INTERFACE_FIELDS = {
 
 ### INTERFACE WIDGETS ####
 class SelectableInterfaceItem(urwid.WidgetWrap):
-    def __init__(self, parent, name, is_connected, is_enabled, iface_type, tx, rx, icon="?", iface_options=None):
+    def __init__(self, parent, name, is_connected, is_enabled, iface_type, tx, rx, icon="?", iface_options=None, profiles_label=None):
         self.parent = parent
         self._selectable = True
         self.icon = icon
@@ -1179,6 +1180,12 @@ class SelectableInterfaceItem(urwid.WidgetWrap):
                 self.rx_widget,
             ]),
         ]
+
+        if profiles_label is not None:
+            rows.insert(2, urwid.Columns([
+                (10, urwid.Text(("key", "Profiles:"))),
+                urwid.Text(("value", profiles_label)),
+            ]))
 
         pile_contents = [title_content] + rows
 
@@ -1240,10 +1247,11 @@ class SelectableInterfaceItem(urwid.WidgetWrap):
         self.rx_widget.set_text(("value", format_bytes(rx)))
 
 class InterfaceOptionItem(urwid.WidgetWrap):
-    def __init__(self, parent_display, label, value):
+    def __init__(self, parent_display, label, value, on_select=None):
         self.parent_display = parent_display
         self.label = label
         self.value = value
+        self.on_select = on_select
         self._selectable = True
 
         text_widget = urwid.Text(label, align="left")
@@ -1252,12 +1260,24 @@ class InterfaceOptionItem(urwid.WidgetWrap):
     def selectable(self):
         return True
 
-    def keypress(self, size, key):
-        if key == "enter":
+    def _activate(self):
+        if self.on_select is not None:
+            self.on_select()
+        else:
             self.parent_display.dismiss_dialog()
             self.parent_display.switch_to_add_interface(self.value)
+
+    def keypress(self, size, key):
+        if key == "enter":
+            self._activate()
             return None
         return super().keypress(size, key)
+
+    def mouse_event(self, size, event, button, x, y, focus):
+        if button == 1 and urwid.util.is_mouse_press(event):
+            self._activate()
+            return True
+        return False
 
 class InterfaceBandwidthChart:
 
@@ -1395,6 +1415,12 @@ class InterfaceFiller(urwid.WidgetWrap):
         super().__init__(self.filler)
 
     def keypress(self, size, key):
+        if key == "tab":
+            self.app.ui.main_display.sub_displays.interface_display.show_profiles()
+            return None
+        if key == "ctrl t":
+            self.app.ui.main_display.sub_displays.interface_display.toggle_view_mode()
+            return None
         if key == "ctrl a":
             # add interface
             self.app.ui.main_display.sub_displays.interface_display.add_interface()
@@ -1717,12 +1743,44 @@ class AddInterfaceView(urwid.WidgetWrap):
                 self.calculator_button,
                 self.calculator_widget,
             ])
+        pile_items.extend(self._build_profiles_section())
         pile_items.extend([
             urwid.Divider("─"),
             button_row,
         ])
 
         return pile_items
+
+    def _build_profiles_section(self):
+        self.profile_checkboxes = []
+        profiles = getattr(self.parent.app, "interface_profiles", None)
+        if profiles is None or not profiles.profiles:
+            return []
+        iface_name = getattr(self, "iface_name", None)
+        current = set()
+        if iface_name:
+            current = set(p["id"] for p in profiles.profiles_for(iface_name))
+        items = [
+            urwid.Divider("─"),
+            urwid.Text(("key", "Profiles"), align="left"),
+            urwid.Text(("inactive_text", "  Assign this interface to one or more profiles."), align="left"),
+        ]
+        for p in profiles.profiles:
+            cb = urwid.CheckBox(p["name"] or "(unnamed)", state=(p["id"] in current))
+            cb.profile_id = p["id"]
+            self.profile_checkboxes.append(cb)
+            items.append(urwid.Padding(cb, left=2))
+        return items
+
+    def _apply_profile_membership(self, iface_name):
+        profiles = getattr(self.parent.app, "interface_profiles", None)
+        if profiles is None:
+            return
+        checked = [cb.profile_id for cb in getattr(self, "profile_checkboxes", []) if cb.get_state()]
+        try:
+            profiles.set_interface_profiles(iface_name, checked)
+        except Exception:
+            pass
 
     def toggle_more_options(self, button):
         if self.more_options_visible:
@@ -1939,6 +1997,7 @@ class AddInterfaceView(urwid.WidgetWrap):
             interfaces = self.parent.app.rns.config['interfaces']
             interfaces[name] = interface_config
             self.parent.app.rns.config.write()
+            self._apply_profile_membership(name)
 
             display_type = custom_type if self.iface_type == "CustomInterface" else self.iface_type
 
@@ -2181,6 +2240,9 @@ class EditInterfaceView(AddInterfaceView):
                 del interfaces[self.iface_name]
                 interfaces[new_name] = updated_config
 
+                try: self.parent.app.interface_profiles.rename_interface(self.iface_name, new_name)
+                except Exception: pass
+
                 for i, item in enumerate(self.parent.interface_items):
                     if item.name == self.iface_name:
                         self.parent.interface_items[i].name = new_name
@@ -2189,6 +2251,7 @@ class EditInterfaceView(AddInterfaceView):
                 interfaces[self.iface_name] = updated_config
 
             self.parent.app.rns.config.write()
+            self._apply_profile_membership(new_name)
 
             display_type = interface_type
 
@@ -2514,77 +2577,33 @@ class ShowInterface(urwid.WidgetWrap):
                 body_pile.contents[chart_index] = (new_widget, body_pile.options())
 
     def on_toggle_enabled(self, button):
-        action = "disable" if self.is_enabled else "enable"
+        self.is_enabled = not self.is_enabled
 
-        def on_confirm_yes(confirm_button):
-            self.parent.app.ui.main_display.frame.body = self.parent.app.ui.main_display.sub_displays.active().widget
+        self.toggle_button.set_label("Disable" if self.is_enabled else "Enable")
 
-            self.is_enabled = not self.is_enabled
+        self.interface_config["interface_enabled"] = self.is_enabled
+        if "enabled" in self.interface_config:
+            self.interface_config["enabled"] = self.is_enabled
 
-            self.toggle_button.set_label("Disable" if self.is_enabled else "Enable")
+        try:
+            interfaces = self.parent.app.rns.config['interfaces']
+            interfaces[self.iface_name] = self.interface_config
+            self.parent.app.rns.config.write()
 
-            if "interface_enabled" in self.interface_config:
-                self.interface_config["interface_enabled"] = self.is_enabled
-            else:
-                self.interface_config["enabled"] = self.is_enabled
+            self.update_status_display()
 
-            try:
-                interfaces = self.parent.app.rns.config['interfaces']
+            for item in self.parent.interface_items:
+                if item.name == self.iface_name:
+                    item.is_enabled = self.is_enabled
+                    item.update_status_display()
 
-                interfaces[self.iface_name] = self.interface_config
+            if hasattr(self.parent.app.ui, 'loop') and self.parent.app.ui.loop is not None:
+                self.parent.app.ui.loop.draw_screen()
 
-                self.parent.app.rns.config.write()
+            self.show_restart_required_message()
 
-                self.update_status_display()
-
-                for item in self.parent.interface_items:
-                    if item.name == self.iface_name:
-                        item.is_enabled = self.is_enabled
-                        item.update_status_display()
-
-                if hasattr(self.parent.app.ui, 'loop') and self.parent.app.ui.loop is not None:
-                    self.parent.app.ui.loop.draw_screen()
-
-                self.show_restart_required_message()
-
-            except Exception as e:
-                self.show_error_message(f"Error updating interface: {str(e)}")
-
-        def on_confirm_no(confirm_button):
-            self.parent.app.ui.main_display.frame.body = self.parent.app.ui.main_display.sub_displays.active().widget
-
-        confirm_text = urwid.Text((
-            "interface_title",
-            f"Are you sure you want to {action} the {self.iface_name} interface?"
-        ), align="center")
-
-        yes_button = urwid.Button("Yes", on_press=on_confirm_yes)
-        no_button = urwid.Button("No", on_press=on_confirm_no)
-
-        buttons_row = urwid.Columns([
-            (urwid.WEIGHT, 0.45, yes_button),
-            (urwid.WEIGHT, 0.1, urwid.Text("")),
-            (urwid.WEIGHT, 0.45, no_button),
-        ])
-
-        pile = urwid.Pile([
-            confirm_text,
-            urwid.Divider(),
-            buttons_row
-        ])
-
-        dialog = DialogLineBox(pile, title="Confirm")
-
-        overlay = urwid.Overlay(
-            dialog,
-            self.parent.app.ui.main_display.frame.body,
-            align='center',
-            width=50,
-            valign='middle',
-            height=7
-        )
-
-        self.parent.app.ui.main_display.frame.body = overlay
+        except Exception as e:
+            self.show_error_message(f"Error updating interface: {str(e)}")
 
     def show_restart_required_message(self):
 
@@ -2822,6 +2841,247 @@ class ShowInterface(urwid.WidgetWrap):
         self.started = False
         self.parent.switch_to_edit_interface(self.iface_name)
 
+class InterfaceTile(urwid.WidgetWrap):
+    def __init__(self, parent, name, is_connected, is_enabled, iface_type, icon):
+        self.parent = parent
+        self.name = name
+        self.icon = icon
+        self.g = parent.g
+        self.dot_style = "connected_status" if is_enabled else "disconnected_status"
+        self.dot = self.g['selected'] if is_enabled else self.g['unselected']
+        self.title_widget = urwid.Text("", wrap="clip")
+        typ = urwid.Text(("value", iface_type), wrap="clip")
+        status = urwid.Text([
+            (self.dot_style, "Enabled" if is_enabled else "Disabled"),
+            ("value", f"  {self.g['sep_dot']}  "),
+            ("connected_status" if is_connected else "disconnected_status", "Conn." if is_connected else "Disc."),
+        ], wrap="clip")
+        inner = urwid.Pile([self.title_widget, typ, status])
+        self.box = urwid.LineBox(
+            urwid.Padding(inner, left=1, right=1),
+            tlcorner="╭", trcorner="╮", blcorner="╰", brcorner="╯",
+        )
+        self.attr = urwid.AttrMap(self.box, None, focus_map={None: "interface_tile_focus"})
+        super().__init__(self.attr)
+        self._render_title(False)
+
+    def _render_title(self, focus):
+        arrow = self.g['focus_arrow'] if focus else " "
+        style = "interface_tile_focus" if focus else "interface_title"
+        self.title_widget.set_text([(self.dot_style, self.dot), (style, f" {arrow} {self.icon} {self.name}")])
+
+    def selectable(self):
+        return True
+
+    def render(self, size, focus=False):
+        self._render_title(focus)
+        return super().render(size, focus)
+
+    def keypress(self, size, key):
+        if key == "enter":
+            self.parent.switch_to_show_interface(self.name)
+            return None
+        return key
+
+    def mouse_event(self, size, event, button, x, y, focus):
+        if button == 1 and urwid.util.is_mouse_press(event):
+            self.parent.switch_to_show_interface(self.name)
+            return True
+        return False
+
+
+### PROFILE VIEWS ###
+class ProfileListRow(urwid.WidgetWrap):
+    def __init__(self, view, pid, label, selected):
+        self.view = view
+        self.pid = pid
+        self.label = label
+        self.selected = selected
+        self.g = view.parent.g
+        self.text_widget = urwid.Text("")
+        super().__init__(urwid.AttrMap(self.text_widget, None))
+        self._render_row(False)
+
+    def _render_row(self, focus):
+        mark = self.g['selected'] if self.selected else self.g['unselected']
+        arrow = self.g['focus_arrow'] if focus else " "
+        if focus:
+            style = "interface_tile_focus"
+        elif self.selected:
+            style = "connected_status"
+        else:
+            style = "interface_title"
+        self.text_widget.set_text((style, f" {arrow} {mark} {self.label}"))
+
+    def selectable(self):
+        return True
+
+    def render(self, size, focus=False):
+        self._render_row(focus)
+        return super().render(size, focus)
+
+    def keypress(self, size, key):
+        if key in (" ", "enter"):
+            if self.pid is not None:
+                self.view.select(self.pid)
+            return None
+        return key
+
+    def mouse_event(self, size, event, button, x, y, focus):
+        if button == 1 and urwid.util.is_mouse_press(event):
+            if self.pid is not None:
+                self.view.select(self.pid)
+            return True
+        return False
+
+
+class ProfilesView(urwid.WidgetWrap):
+    def __init__(self, parent):
+        self.parent = parent
+        self.app = parent.app
+        self.profiles = parent.app.interface_profiles
+        self.profiles.prune()
+        self.status = urwid.Text("", align="center")
+        self.walker = urwid.SimpleFocusListWalker([])
+        self.listbox = urwid.ListBox(self.walker)
+        body_rows = max(3, parent.list_rows - 3)
+        self.pile = urwid.Pile([
+            ('pack', parent._make_tab_bar("profiles")),
+            ('pack', self.status),
+            ('pack', urwid.Divider()),
+            urwid.BoxAdapter(self.listbox, body_rows),
+        ])
+        super().__init__(urwid.Filler(self.pile, urwid.TOP))
+        self.refresh()
+
+    def refresh(self, focus_pid="__keep__"):
+        prev = None
+        try:
+            w, _ = self.listbox.body.get_focus()
+            prev = getattr(w, "pid", None)
+        except Exception:
+            pass
+        self.profiles.update_default_if_custom()
+        active = self.profiles.active_profile_id()
+        items = [ProfileListRow(self, "__default__", "Default", active is None)]
+        for p in self.profiles.profiles:
+            count = self.profiles.member_count(p)
+            label = f"{p['name'] or '(unnamed)'}   ({count} interface{'' if count == 1 else 's'})"
+            items.append(ProfileListRow(self, p["id"], label, p["id"] == active))
+        if len(self.profiles.profiles) == 0:
+            items.append(urwid.Text("\n  No profiles yet. Press Ctrl + A to create one.", align="left"))
+        self.walker[:] = items
+        target = focus_pid if focus_pid != "__keep__" else prev
+        for i, w in enumerate(self.walker):
+            if getattr(w, "pid", "__x__") == target:
+                try: self.listbox.focus_position = i
+                except Exception: pass
+                break
+
+    def _focused(self):
+        try:
+            w, _ = self.listbox.body.get_focus()
+            return w if isinstance(w, ProfileListRow) else None
+        except Exception:
+            return None
+
+    def select(self, pid):
+        if pid == "__default__":
+            self.profiles.select_default()
+        else:
+            self.profiles.select_profile(pid)
+        self.refresh(focus_pid=pid)
+        self.status.set_text(("connected_status", "Restart NomadNet for changes to take effect"))
+
+    def _overlay(self, dialog, height=8, width=50):
+        frame = self.app.ui.main_display.frame
+        frame.body = urwid.Overlay(dialog, self, align="center", width=width,
+                                   valign="middle", height=height, min_width=20)
+
+    def dismiss_dialog(self):
+        self.app.ui.main_display.frame.body = self
+
+    def new_profile(self):
+        edit = ReadlineEdit(caption="Name: ")
+
+        def ok(_b):
+            val = edit.get_edit_text().strip()
+            self.dismiss_dialog()
+            if val:
+                pid = self.profiles.create(val)
+                self.refresh(focus_pid=pid)
+
+        self._prompt("New Profile", edit, ok)
+
+    def rename_profile(self):
+        w = self._focused()
+        if w is None or w.pid is None:
+            return
+        p = self.profiles.get(w.pid)
+        if p is None:
+            return
+        edit = ReadlineEdit(caption="Name: ", edit_text=p["name"])
+
+        def ok(_b):
+            val = edit.get_edit_text().strip()
+            self.dismiss_dialog()
+            if val:
+                self.profiles.rename(p["id"], val)
+                self.refresh(focus_pid=p["id"])
+
+        self._prompt("Rename Profile", edit, ok)
+
+    def delete_profile(self):
+        w = self._focused()
+        if w is None or w.pid is None:
+            return
+        p = self.profiles.get(w.pid)
+        if p is None:
+            return
+
+        def yes(_b):
+            self.dismiss_dialog()
+            self.profiles.delete(p["id"])
+            self.refresh()
+
+        def no(_b):
+            self.dismiss_dialog()
+
+        pile = urwid.Pile([
+            urwid.Text(f"Delete profile '{p['name'] or p['id']}'?\nInterfaces keep their current enabled state.", align="center"),
+            urwid.Divider(),
+            urwid.Columns([
+                (urwid.WEIGHT, 0.45, urwid.Button("Yes", on_press=yes)),
+                (urwid.WEIGHT, 0.1, urwid.Text("")),
+                (urwid.WEIGHT, 0.45, urwid.Button("No", on_press=no)),
+            ]),
+        ])
+        self._overlay(DialogLineBox(urwid.Filler(pile, urwid.TOP), parent=self, title="Confirm"), height=10)
+
+    def _prompt(self, title, edit, on_ok):
+        pile = urwid.Pile([
+            edit,
+            urwid.Divider(),
+            urwid.Columns([
+                (urwid.WEIGHT, 0.45, urwid.Button("OK", on_press=on_ok)),
+                (urwid.WEIGHT, 0.1, urwid.Text("")),
+                (urwid.WEIGHT, 0.45, urwid.Button("Cancel", on_press=lambda _b: self.dismiss_dialog())),
+            ]),
+        ])
+        self._overlay(DialogLineBox(urwid.Filler(pile, urwid.TOP), parent=self, title=title))
+
+    def keypress(self, size, key):
+        if key in ("tab", "esc"):
+            self.parent.show_interfaces(); return None
+        if key == "ctrl a":
+            self.new_profile(); return None
+        if key == "ctrl e":
+            self.rename_profile(); return None
+        if key == "ctrl x":
+            self.delete_profile(); return None
+        return super().keypress(size, key)
+
+
 ### MAIN DISPLAY ###
 class InterfaceDisplay:
     def __init__(self, app):
@@ -2837,86 +3097,92 @@ class InterfaceDisplay:
         self.iface_row_offset = 4
         self.list_rows = self.terminal_rows - self.iface_row_offset
 
-        interfaces = app.rns.config['interfaces']
-        processed_interfaces = {}
+        self.active_tab = "interfaces"
+        self.iface_view_mode = "rows"
+        self.profiles_view = None
 
-        for interface_name, interface in interfaces.items():
-            interface_data = interface.copy()
+        self._build_interface_items()
 
-            # handle sub-interfaces for RNodeMultiInterface
-            if interface_data.get("type") == "RNodeMultiInterface":
-                sub_interfaces = []
-                for sub_name, sub_config in interface_data.items():
-                    if sub_name not in {"type", "port", "interface_enabled", "selected_interface_mode",
-                                        "configured_bitrate"}:
-                        if isinstance(sub_config, dict):
-                            sub_config["name"] = sub_name
-                            sub_interfaces.append(sub_config)
-
-                # add sub-interfaces to the main interface data
-                interface_data["sub_interfaces"] = sub_interfaces
-
-                for sub in sub_interfaces:
-                    del interface_data[sub["name"]]
-
-            processed_interfaces[interface_name] = interface_data
-
-        app.interface_stats = app.rns.get_interface_stats()
-        interface_stats = app.interface_stats
-        stats_lookup = {interface['short_name']: interface for interface in interface_stats['interfaces']}
-        # print(stats_lookup)
-        for interface_name, interface_data in processed_interfaces.items():
-            # configobj false values
-            is_enabled = str(interface_data.get("enabled")).lower() not in ('false', 'off', 'no', '0') and str(interface_data.get("interface_enabled")).lower() not in ('false', 'off', 'no', '0')
-
-            iface_type = interface_data.get("type", "Unknown")
-            icon = _get_interface_icon(self.glyphset, iface_type)
-
-            stats_for_interface = stats_lookup.get(interface_name)
-
-            if stats_for_interface:
-                tx = stats_for_interface.get("txb", 0)
-                rx = stats_for_interface.get("rxb", 0)
-                is_connected = stats_for_interface["status"]
-            else:
-                tx = 0
-                rx = 0
-                is_connected = False
-
-            item = SelectableInterfaceItem(
-                parent=self,
-                name=interface_data.get("name", interface_name),
-                is_connected=is_connected,
-                is_enabled=is_enabled,
-                iface_type=iface_type,
-                tx=tx,
-                rx=rx,
-                icon=icon
-            )
-
-            self.interface_items.append(item)
-
-        interface_header = urwid.Text(("interface_title", "Interfaces"), align="center")
-        if len(self.interface_items) == 0:
-            interface_header = urwid.Text(
-                ("interface_title", "No interfaces found. Press Ctrl + A to add a new interface "), align="center")
-
-
-        list_contents = [
-            interface_header,
-            urwid.Divider(),
-        ] + self.interface_items
-
-        self.list_walker = urwid.SimpleFocusListWalker(list_contents)
+        self.list_walker = urwid.SimpleFocusListWalker(self._interface_list_contents())
         self.list_box = urwid.ListBox(self.list_walker)
 
-        self.box_adapter = urwid.BoxAdapter(self.list_box, self.list_rows)
+        self.body_rows = max(3, self.list_rows - 3)
+        self.box_adapter = urwid.BoxAdapter(self.list_box, self.body_rows)
 
-
-        pile = urwid.Pile([self.box_adapter])
-        self.interfaces_display = InterfaceFiller(pile, self.app)
+        self.tabs_pile = urwid.Pile([
+            ('pack', self._make_tab_bar("interfaces")),
+            ('pack', urwid.Divider()),
+            self.box_adapter,
+        ])
+        self.interfaces_display = InterfaceFiller(self.tabs_pile, self.app)
         self.shortcuts_display = InterfaceDisplayShortcuts(self.app)
         self.widget = self.interfaces_display
+
+    def _interface_list_contents(self):
+        if not self.interface_items:
+            return [urwid.Text(("interface_title", "No interfaces found. Press Ctrl + A to add a new interface "), align="center")]
+        return list(self.interface_items)
+
+    def _make_tab_bar(self, active):
+        iface = f" Interfaces ({len(self.interface_items)}) "
+        prof = " Profiles "
+        if active == "interfaces":
+            iface_w = ClickableIcon(("interface_title_selected", "["+iface+"]"), on_click=self.show_interfaces)
+            prof_w = ClickableIcon(("interface_title", " "+prof+" "), on_click=self.show_profiles)
+        else:
+            iface_w = ClickableIcon(("interface_title", " "+iface+" "), on_click=self.show_interfaces)
+            prof_w = ClickableIcon(("interface_title_selected", "["+prof+"]"), on_click=self.show_profiles)
+        return urwid.Columns([
+            ('weight', 1, urwid.Text("")),
+            ('pack', iface_w),
+            ('pack', urwid.Text("   ")),
+            ('pack', prof_w),
+            ('weight', 1, urwid.Text("")),
+        ], dividechars=0)
+
+    def _build_grid_listbox(self):
+        tiles = self.interface_tiles if self.interface_tiles else [urwid.Text("No interfaces found. Press Ctrl + A to add a new interface ", align="center")]
+        self.iface_grid = urwid.GridFlow(tiles, cell_width=34, h_sep=2, v_sep=1, align="center")
+        return urwid.ListBox(urwid.SimpleFocusListWalker([self.iface_grid]))
+
+    def _set_iface_body(self):
+        if self.iface_view_mode == "grid":
+            self.box_adapter.original_widget = self._build_grid_listbox()
+        else:
+            self.list_walker = urwid.SimpleFocusListWalker(self._interface_list_contents())
+            self.list_box = urwid.ListBox(self.list_walker)
+            self.box_adapter.original_widget = self.list_box
+
+    def _focused_interface_name(self):
+        try:
+            if self.iface_view_mode == "grid":
+                return getattr(self.iface_grid.focus, "name", None)
+            fw, _ = self.box_adapter._original_widget.body.get_focus()
+            return getattr(fw, "name", None) if isinstance(fw, SelectableInterfaceItem) else None
+        except Exception:
+            return None
+
+    def toggle_view_mode(self):
+        self.iface_view_mode = "grid" if self.iface_view_mode == "rows" else "rows"
+        self._set_iface_body()
+        self.app.ui.main_display.update_active_sub_display()
+
+    def show_profiles(self):
+        if getattr(self.app, "interface_profiles", None) is None:
+            return
+        self.active_tab = "profiles"
+        self.profiles_view = ProfilesView(self)
+        self.shortcuts_display.set_profiles_tab_shortcuts()
+        self.widget = self.profiles_view
+        self.app.ui.main_display.update_active_sub_display()
+
+    def show_interfaces(self):
+        self.active_tab = "interfaces"
+        self._build_interface_items()
+        self._rebuild_list()
+        self.shortcuts_display.reset_shortcuts()
+        self.widget = self.interfaces_display
+        self.app.ui.main_display.update_active_sub_display()
 
     def start(self):
         # started from Main.py
@@ -2930,14 +3196,9 @@ class InterfaceDisplay:
         self.app.ui.main_display.update_active_sub_display()
 
     def edit_selected_interface(self):
-        focus_widget, focus_position = self.box_adapter._original_widget.body.get_focus()
-
-        if not isinstance(focus_widget, SelectableInterfaceItem):
+        interface_name = self._focused_interface_name()
+        if interface_name is None:
             return
-
-        selected_item = focus_widget
-        interface_name = selected_item.name
-
         self.switch_to_edit_interface(interface_name)
 
     def check_terminal_size(self, loop, user_data):
@@ -2947,8 +3208,9 @@ class InterfaceDisplay:
         if new_rows != self.terminal_rows or new_cols != self.terminal_cols:
             self.terminal_cols, self.terminal_rows = new_cols, new_rows
             self.list_rows = self.terminal_rows - self.iface_row_offset
+            self.body_rows = max(3, self.list_rows - 3)
 
-            self.box_adapter.height = self.list_rows
+            self.box_adapter.height = self.body_rows
 
             loop.draw_screen()
 
@@ -3009,10 +3271,7 @@ class InterfaceDisplay:
         show_interface.start()
 
     def switch_to_list(self):
-        self.shortcuts_display.reset_shortcuts()
-        self.widget = self.interfaces_display
-        self._rebuild_list()
-        self.app.ui.main_display.update_active_sub_display()
+        self.show_interfaces()
 
     def add_interface(self):
         dialog_widgets = []
@@ -3023,6 +3282,10 @@ class InterfaceDisplay:
         def add_option(label, value):
             item = InterfaceOptionItem(self, label, value)
             dialog_widgets.append(item)
+
+        add_heading("Paste Configuration")
+        dialog_widgets.append(InterfaceOptionItem(self, "Paste an interface config…", None, on_select=self.show_paste_config_dialog))
+        dialog_widgets.append(urwid.Divider())
 
         # Get the icons based on plain, unicode, nerdfont glyphset
         network_icon = _get_interface_icon(self.glyphset, "AutoInterface")
@@ -3072,28 +3335,117 @@ class InterfaceDisplay:
         self.widget = overlay
         self.app.ui.main_display.update_active_sub_display()
 
+    def show_paste_config_dialog(self):
+        self.paste_edit = ReadlineEdit(caption="", multiline=True)
+        self.paste_status = urwid.Text("")
+
+        instructions = urwid.Text(
+            "Paste an interface block, including its [[Name]] header, then Create. "
+            "Multiple interfaces are supported.", align="left")
+
+        editor = urwid.AttrMap(
+            urwid.LineBox(urwid.BoxAdapter(urwid.ListBox(urwid.SimpleListWalker([self.paste_edit])), 12)),
+            "list_off_focus", "list_focus")
+
+        pile = urwid.Pile([
+            instructions,
+            urwid.Divider(),
+            editor,
+            self.paste_status,
+            urwid.Divider(),
+            urwid.Columns([
+                (urwid.WEIGHT, 0.45, urwid.Button("Create", on_press=lambda _b: self._create_interfaces_from_text(self.paste_edit.get_edit_text()))),
+                (urwid.WEIGHT, 0.1, urwid.Text("")),
+                (urwid.WEIGHT, 0.45, urwid.Button("Cancel", on_press=lambda _b: self.dismiss_dialog())),
+            ]),
+        ])
+
+        dialog = DialogLineBox(urwid.Filler(pile, valign="top"), parent=self, title="Paste Interface Config")
+        overlay = urwid.Overlay(
+            dialog, self.interfaces_display,
+            align="center", width=("relative", 75),
+            valign="middle", height=("relative", 75),
+            min_width=44, min_height=14,
+        )
+        self.widget = overlay
+        self.app.ui.main_display.update_active_sub_display()
+
+    def _section_to_dict(self, sec):
+        out = {}
+        for k, v in sec.items():
+            out[k] = self._section_to_dict(v) if hasattr(v, "items") else v
+        return out
+
+    def _parse_pasted_interfaces(self, text):
+        import RNS.vendor.configobj as configobj
+        raw = (text or "").strip("\n")
+        if not raw.strip():
+            return {}
+        for prefix in ("", "[interfaces]\n"):
+            try:
+                parsed = configobj.ConfigObj(infile=(prefix + raw).split("\n"))
+            except Exception:
+                continue
+            found = {}
+            sections = []
+            ifsec = parsed.get("interfaces")
+            if hasattr(ifsec, "items"):
+                sections.extend(ifsec.items())
+            for name, sec in parsed.items():
+                if name != "interfaces" and hasattr(sec, "items"):
+                    sections.append((name, sec))
+            for name, sec in sections:
+                if not hasattr(sec, "items"):
+                    continue
+                d = self._section_to_dict(sec)
+                if "type" in d and name not in found:
+                    found[name] = d
+            if found:
+                return found
+        return {}
+
+    def _create_interfaces_from_text(self, text):
+        parsed = self._parse_pasted_interfaces(text)
+        if not parsed:
+            self.paste_status.set_text(("error", " Could not find an interface with a 'type'. Include the [[Name]] header."))
+            return
+
+        interfaces = self.app.rns.config['interfaces']
+        existing = [n for n in parsed if n in interfaces]
+        if existing:
+            self.paste_status.set_text(("error", " Already exists: " + ", ".join(existing)))
+            return
+
+        try:
+            for name, conf in parsed.items():
+                interfaces[name] = conf
+            self.app.rns.config.write()
+        except Exception as e:
+            self.paste_status.set_text(("error", " Failed: " + str(e)))
+            return
+
+        self.dismiss_dialog()
+        self.show_interfaces()
+
     def switch_to_add_interface(self, iface_type):
         self.add_interface_view = AddInterfaceView(self, iface_type)
         self.widget = self.add_interface_view
         self.app.ui.main_display.update_active_sub_display()
 
     def remove_selected_interface(self):
-        focus_widget, focus_position = self.box_adapter._original_widget.body.get_focus()
-        if not isinstance(focus_widget, SelectableInterfaceItem):
+        interface_name = self._focused_interface_name()
+        if interface_name is None:
             return
-
-        selected_item = focus_widget
-        interface_name = selected_item.name
 
         def on_confirm_yes(button):
             try:
                 if interface_name in self.app.rns.config['interfaces']:
                     del self.app.rns.config['interfaces'][interface_name]
                     self.app.rns.config.write()
+                    try: self.app.interface_profiles.remove_interface(interface_name)
+                    except Exception: pass
 
-                if selected_item in self.interface_items:
-                    self.interface_items.remove(selected_item)
-
+                self._build_interface_items()
                 self._rebuild_list()
                 self.dismiss_dialog()
 
@@ -3142,20 +3494,82 @@ class InterfaceDisplay:
         self.widget = self.interfaces_display
         self.app.ui.main_display.update_active_sub_display()
 
+    def _build_interface_items(self):
+        self.interface_items = []
+        self.interface_tiles = []
+        interfaces = self.app.rns.config['interfaces']
+        processed_interfaces = {}
+
+        for interface_name, interface in interfaces.items():
+            interface_data = interface.copy()
+
+            if interface_data.get("type") == "RNodeMultiInterface":
+                sub_interfaces = []
+                for sub_name, sub_config in interface_data.items():
+                    if sub_name not in {"type", "port", "interface_enabled", "selected_interface_mode",
+                                        "configured_bitrate"}:
+                        if isinstance(sub_config, dict):
+                            sub_config["name"] = sub_name
+                            sub_interfaces.append(sub_config)
+
+                interface_data["sub_interfaces"] = sub_interfaces
+
+                for sub in sub_interfaces:
+                    del interface_data[sub["name"]]
+
+            processed_interfaces[interface_name] = interface_data
+
+        self.app.interface_stats = self.app.rns.get_interface_stats()
+        stats_lookup = {interface['short_name']: interface for interface in self.app.interface_stats['interfaces']}
+
+        profiles = getattr(self.app, "interface_profiles", None)
+
+        for interface_name, interface_data in processed_interfaces.items():
+            is_enabled = str(interface_data.get("enabled")).lower() not in ('false', 'off', 'no', '0') and str(interface_data.get("interface_enabled")).lower() not in ('false', 'off', 'no', '0')
+
+            iface_type = interface_data.get("type", "Unknown")
+            icon = _get_interface_icon(self.glyphset, iface_type)
+
+            stats_for_interface = stats_lookup.get(interface_name)
+
+            if stats_for_interface:
+                tx = stats_for_interface.get("txb", 0)
+                rx = stats_for_interface.get("rxb", 0)
+                is_connected = stats_for_interface["status"]
+            else:
+                tx = 0
+                rx = 0
+                is_connected = False
+
+            profiles_label = profiles.label_for(interface_name) if profiles is not None else None
+
+            item = SelectableInterfaceItem(
+                parent=self,
+                name=interface_data.get("name", interface_name),
+                is_connected=is_connected,
+                is_enabled=is_enabled,
+                iface_type=iface_type,
+                tx=tx,
+                rx=rx,
+                icon=icon,
+                profiles_label=profiles_label
+            )
+
+            self.interface_items.append(item)
+
+            tile = InterfaceTile(
+                parent=self,
+                name=interface_data.get("name", interface_name),
+                is_connected=is_connected,
+                is_enabled=is_enabled,
+                iface_type=iface_type,
+                icon=icon,
+            )
+            self.interface_tiles.append(tile)
+
     def _rebuild_list(self):
-        interface_header = urwid.Text(("interface_title", f"Interfaces ({len(self.interface_items)})"), align="center")
-        if len(self.interface_items) == 0:
-            interface_header = urwid.Text(("interface_title", "No interfaces found. Press Ctrl + A to add a new interface "), align="center")
-
-        new_list = [
-                       interface_header,
-                       urwid.Divider(),
-                   ] + self.interface_items
-        # RNS.log(f"items: {self.interface_items}")
-
-        walker = urwid.SimpleFocusListWalker(new_list)
-        self.box_adapter._original_widget.body = walker
-        self.box_adapter._original_widget.focus_position = len(new_list) - 1
+        self._set_iface_body()
+        self.tabs_pile.contents[0] = (self._make_tab_bar("interfaces"), self.tabs_pile.options('pack'))
 
     def open_config_editor(self):
         import platform
@@ -3188,7 +3602,7 @@ class InterfaceDisplay:
 class InterfaceDisplayShortcuts:
     def __init__(self, app):
         self.app = app
-        self.default_shortcuts = "[C-a] Add Interface [C-e] Edit Interface [C-x] Remove Interface [Enter] Show Interface [C-w] Open Text Editor"
+        self.default_shortcuts = "[C-a] Add [C-e] Edit [C-x] Remove [Enter] Show [C-t] Grid/Rows [C-w] Editor [Tab] Profiles"
         self.current_shortcuts = self.default_shortcuts
         self.widget = urwid.AttrMap(
             urwid.Text(self.current_shortcuts),
@@ -3213,3 +3627,7 @@ class InterfaceDisplayShortcuts:
     def set_edit_interface_shortcuts(self):
         edit_shortcuts = "[Up/Down] Navigate Fields [Enter] Select Option"
         self.update_shortcuts(edit_shortcuts)
+
+    def set_profiles_tab_shortcuts(self):
+        profiles_shortcuts = "[Up/Down] Navigate [Space] Select Profile [C-a] New [C-e] Rename [C-x] Delete [Tab] Interfaces"
+        self.update_shortcuts(profiles_shortcuts)

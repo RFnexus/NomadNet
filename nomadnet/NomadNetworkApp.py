@@ -330,6 +330,9 @@ class NomadNetworkApp:
         self.rrc = RRCManager(self)
         self.rrc.load()
 
+        from nomadnet.InterfaceProfiles import InterfaceProfiles
+        self.interface_profiles = InterfaceProfiles(self)
+
         static_peers = []
         for static_peer in self.static_peers:
             try:
