@@ -169,6 +169,10 @@ GLYPHS = {
     ("audio",           "[~]",       "\u266b",      "\uf1c7"),
     ("pin",             "*",         "\u2605",      "\uf08d"),
     ("copy",            "[C]",       "\u29c9",      "\uf0c5"),
+    ("folder",          "[+]",       "\u25b8",      "\uf07b"),
+    ("folder_open",     "[-]",       "\u25be",      "\uf07c"),
+    ("fold_open",       "-",         "▾",      "▾"),
+    ("fold_closed",     "+",         "▸",      "▸"),
 }
 
 class TextUI:

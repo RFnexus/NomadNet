@@ -20,7 +20,7 @@ from nomadnet.util import sanitize_name
 from RNS.Utilities.rngit.util import MarkdownToMicron
 from RNS.Utilities.rngit.highlight import SyntaxHighlighter
 from .MicronParser import markup_to_attrmaps
-from .Helpers import ClickableIcon, osc52_copy
+from .Helpers import ClickableIcon, osc52_copy, qr_ascii
 from .ReadlineEdit import ReadlineMixin, ReadlineEdit
 from nomadnet.util import strip_modifiers, strip_micron, strip_escaped_micron, unescape_micron, strip_non_formatting_tags
 from nomadnet.ui import THEME_DARK, THEME_LIGHT
@@ -639,22 +639,7 @@ class ConversationsDisplay():
         self.show_qr_dialog(addr, title=display)
 
     def show_qr_dialog(self, data, title=None):
-        qr_text = None
-        try:
-            import qrcode
-            try:
-                qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=1, border=1)
-                qr.add_data(data)
-                qr.make()
-                import io
-                buf = io.StringIO()
-                qr.print_ascii(out=buf, invert=False)
-                qr_text = buf.getvalue().rstrip("\n")
-            except Exception as e:
-                RNS.log("QR generation failed: "+str(e), RNS.LOG_ERROR)
-                qr_text = None
-        except Exception:
-            qr_text = None
+        qr_text = qr_ascii(data)
 
         def dismiss(_b):
             self._restore_listbox_pane()

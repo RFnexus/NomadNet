@@ -1420,6 +1420,7 @@ With micron you can easily create structured documents and pages with formatting
  `F79d`_`[A Few Demo Outputs`#a-few-demo-outputs]`_`f
  `F79d`_`[Micron Tags`#micron-tags]`_`f
  `F79d`_`[High Level Stuff`#high-level-stuff]`_`f
+ `F79d`_`[Collapsible Sections`#collapsible-sections]`_`f
  `F79d`_`[Colors`#colors]`_`f
  `F79d`_`[Page Foreground and Background Colors`#page-foreground-and-background-colors]`_`f
  `F79d`_`[Links`#links]`_`f
@@ -1585,6 +1586,32 @@ A sub sub section. We could continue, but you get the point.
 
 >>>>
 Wait! It's worth noting that we can also create sections without headings. They look like this.
+``
+
+>Collapsible Sections
+
+Any section heading can be made collapsible, turning it into an accordion the reader can fold away and reveal on demand. Prefix a heading with \\`+ to make it foldable and open by default, or with \\`- to make it foldable but start collapsed:
+
+`Faaa
+`=
+`+>Open by default
+This text can be folded away by selecting the heading.
+
+`->Hidden until expanded
+This starts collapsed, and appears when the reader expands it.
+`=
+``
+
+A collapsible heading folds everything beneath it, up to the next heading of the same or a higher level, exactly like a normal section. It can therefore contain anything: text, tables, input fields, sub-sections, and even live partials.
+
+To fold or unfold a section, move onto its heading and press Enter or Space, or click it with the mouse. Open sections are marked with ▾ and collapsed ones with ▸.
+
+You can choose your own indicators for a page by placing a #!fold directive near the top, giving the open glyph followed by the collapsed glyph:
+
+`Faaa
+`=
+#!fold [-] [+]
+`=
 ``
 
 
@@ -1781,6 +1808,14 @@ A sized input field:  `B444`<16|with_size`>`b
 `=
 ``
 
+You can also reserve more than one row for a field by appending `!xROWS`! to the width, which is useful for longer, multi-line input. This creates a field that is 40 columns wide and 5 rows tall:
+
+`Faaa
+`=
+A multi-row input field: `B444`<40x5|notes`>`b
+`=
+``
+
 It is possible to mask fields, for example for use with passwords and similar:
 
 `Faaa
@@ -1808,6 +1843,8 @@ An empty input field: `B444`<demo_empty`>`B333
 A sized input field:  `B444`<16|with_size`>`B333
 
 A masked input field: `B444`<!|masked_demo`hidden text>`B333
+
+A multi-row input field: `B444`<40x5|notes`>`B333
 
 Full control: `B444`<!32|all_options`hidden text>`B333
 `b

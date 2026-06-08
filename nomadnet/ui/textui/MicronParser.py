@@ -36,6 +36,15 @@ SECTION_INDENT = 2
 INDENT_RIGHT   = 1
 MAX_TABLE_WIDTH = 100
 
+DEFAULT_FOLD_GLYPHS = ("▾", "▸")
+
+def default_fold_glyphs():
+    try:
+        g = nomadnet.NomadNetworkApp.get_shared_instance().ui.glyphs
+        return (g.get("fold_open", DEFAULT_FOLD_GLYPHS[0]), g.get("fold_closed", DEFAULT_FOLD_GLYPHS[1]))
+    except Exception:
+        return DEFAULT_FOLD_GLYPHS
+
 def default_state(fg=None, bg=None):
     global SELECTED_STYLES
     ensure_selected_styles()
@@ -132,15 +141,26 @@ def markup_to_attrmaps(markup, url_delegate = None, fg_color=None, bg_color=None
 
             if state.get("_header_pending"):
                 state["header_rows"].append(row_index)
+                state.setdefault("header_levels", {})[row_index] = state["depth"]
+                cp = state.get("_collapsible_pending")
+                if cp is not None:
+                    state.setdefault("collapsibles", {})[row_index] = bool(cp["collapsed"])
+                    state["_collapsible_pending"] = None
                 state["_header_pending"] = False
 
+            row_levels = state.setdefault("row_levels", {})
             for display_widget in display_widgets:
+                row_levels[len(attrmaps)] = state["depth"]
                 attrmap = urwid.AttrMap(display_widget, make_style(state))
                 attrmaps.append(attrmap)
 
     try:
         setattr(attrmaps, "anchors", anchors)
         setattr(attrmaps, "header_rows", list(state.get("header_rows", [])))
+        setattr(attrmaps, "header_levels", dict(state.get("header_levels", {})))
+        setattr(attrmaps, "row_levels", dict(state.get("row_levels", {})))
+        setattr(attrmaps, "collapsibles", dict(state.get("collapsibles", {})))
+        setattr(attrmaps, "fold_glyphs", state.get("fold_glyphs") or default_fold_glyphs())
     except Exception:
         pass
 
@@ -222,6 +242,7 @@ class FormColumns(urwid.Columns):
     MIN_FIELD_WIDTH = 4
 
     
+    @staticmethod
     def _natural_width(widget, maxcol, focused):
         # mirror the width urwid.Columns itself computes for a PACK column
         if not isinstance(widget, urwid.Widget):
@@ -297,6 +318,95 @@ class FormColumns(urwid.Columns):
         return widths
 
 
+class MicronField(ReadlineEdit):
+    def __init__(self, *args, min_rows=1, **kwargs):
+        try:    self._min_rows = max(1, int(min_rows))
+        except (TypeError, ValueError): self._min_rows = 1
+        super().__init__(*args, **kwargs)
+
+    def rows(self, size, focus=False):
+        return max(self._min_rows, super().rows(size, focus))
+
+    def render(self, size, focus=False):
+        canv = super().render(size, focus)
+        if canv.rows() < self._min_rows:
+            canv = urwid.CompositeCanvas(canv)
+            canv.pad_trim_top_bottom(0, self._min_rows - canv.rows())
+        return canv
+
+
+class CollapsibleHeading(urwid.WidgetWrap):
+    _selectable = True
+    ignore_focus = False
+
+    def __init__(self, segments, align, heading_style, depth,
+                 collapsed=False, glyphs=None, delegate=None):
+        self._segments = list(segments)
+        self.align = align
+        self.heading_style = heading_style
+        self.depth = depth
+        self.collapsed = bool(collapsed)
+        self.glyphs = glyphs if glyphs is not None else default_fold_glyphs()
+        self.delegate = delegate
+        self.is_collapsible_heading = True
+        super().__init__(self._build())
+
+    def selectable(self):
+        return True
+
+    def _glyph(self):
+        return self.glyphs[1] if self.collapsed else self.glyphs[0]
+
+    def _glyph_col(self):
+        if self._segments and isinstance(self._segments[0], str):
+            return len(self._segments[0])
+        return 0
+
+    def _build(self):
+        segs = list(self._segments)
+        marker = self._glyph() + " "
+        if segs and isinstance(segs[0], str):
+            segs.insert(1, marker)
+        else:
+            segs.insert(0, marker)
+        return urwid.AttrMap(urwid.Text(segs, align=self.align), self.heading_style)
+
+    def set_collapsed(self, collapsed):
+        collapsed = bool(collapsed)
+        if collapsed != self.collapsed:
+            self.collapsed = collapsed
+            self._w = self._build()
+            self._invalidate()
+
+    def toggle(self):
+        self.collapsed = not self.collapsed
+        self._w = self._build()
+        self._invalidate()
+        if self.delegate is not None and hasattr(self.delegate, "fold_changed"):
+            self.delegate.fold_changed(self)
+
+    def keypress(self, size, key):
+        if self._command_map[key] == urwid.ACTIVATE or key == " ":
+            self.toggle()
+            return None
+        return key
+
+    def mouse_event(self, size, event, button, x, y, focus):
+        if button == 1 and is_mouse_press(event):
+            self.toggle()
+            return True
+        return False
+
+    def render(self, size, focus=False):
+        canv = super().render(size, focus)
+        if focus:
+            canv = urwid.CompositeCanvas(canv)
+            gx = self._glyph_col()
+            if self.align == "left" and gx < size[0]:
+                canv.cursor = (gx, 0)
+        return canv
+
+
 def parse_line(line, state, url_delegate):
     pre_escape = False
     if len(line) > 0:
@@ -309,6 +419,14 @@ def parse_line(line, state, url_delegate):
 
         # Only parse content if not in literal state
         if not state["literal"]:
+            collapsible_heading = False
+            collapsed_initial = False
+            if (line.startswith("`+") or line.startswith("`-")) and line[2:3] == ">":
+                collapsible_heading = True
+                collapsed_initial = line[1] == "-"
+                line = line[2:]
+                first_char = line[0]
+
             # Apply markup sanitization
             if first_char == ">" and "`<" in line:
                 # Remove heading status from lines containing fields
@@ -322,6 +440,10 @@ def parse_line(line, state, url_delegate):
 
             # Check for comments
             elif first_char == "#":
+                parts = line.split()
+                if parts and parts[0] == "#!fold":
+                    if len(parts) >= 3:   state["fold_glyphs"] = (parts[1], parts[2])
+                    elif len(parts) == 2: state["fold_glyphs"] = (parts[1], parts[1])
                 return None
 
             # Check for tables
@@ -395,6 +517,11 @@ def parse_line(line, state, url_delegate):
 
                         heading_style = first_style
                         output.insert(0, " "*left_indent(state))
+                        if collapsible_heading:
+                            state["_collapsible_pending"] = {"collapsed": collapsed_initial}
+                            glyphs = state.get("fold_glyphs") or default_fold_glyphs()
+                            return [CollapsibleHeading(output, state["align"], heading_style,
+                                                       state["depth"], collapsed_initial, glyphs, url_delegate)]
                         return [urwid.AttrMap(urwid.Text(output, align=state["align"]), heading_style)]
                     else:
                         return None
@@ -440,8 +567,9 @@ def parse_line(line, state, url_delegate):
                             fd = o["data"]
                             fn = o["name"]
                             fs = o["style"]
+                            frows = o.get("rows", 1)
                             fmask = "*" if o["masked"] else None
-                            f = ReadlineEdit(caption="", edit_text=fd, align=state["align"], multiline=True, mask=fmask)
+                            f = MicronField(caption="", edit_text=fd, align=state["align"], multiline=True, mask=fmask, min_rows=frows)
                             f.field_name = fn
                             fa = urwid.AttrMap(f, fs)
                             widgets.append((fw, fa))
@@ -759,11 +887,12 @@ def make_output(state, line, url_delegate, pre_escape=False):
                                 field_content = line[field_start:backtick_pos]
                                 field_masked = False
                                 field_width = 24
+                                field_rows = 1
                                 field_type = "field"
                                 field_name = field_content
                                 field_value = ""
                                 field_data = ""
-                                field_prechecked = False  
+                                field_prechecked = False
 
                                 # check if field_content contains '|'
                                 if '|' in field_content:
@@ -784,10 +913,16 @@ def make_output(state, line, url_delegate, pre_escape=False):
 
                                     # Handle field width
                                     if len(field_flags) > 0:
+                                        width_flag, _, rows_flag = field_flags.partition("x")
                                         try:
-                                            field_width = min(int(field_flags), 256)
+                                            field_width = min(int(width_flag), 256)
                                         except ValueError:
                                             pass  # Ignore invalid width
+                                        if rows_flag:
+                                            try:
+                                                field_rows = max(1, min(int(rows_flag), 256))
+                                            except ValueError:
+                                                pass
 
                                     # Check for value and pre-checked flag
                                     if len(f_components) > 2:
@@ -831,6 +966,7 @@ def make_output(state, line, url_delegate, pre_escape=False):
                                             "type": "field",
                                             "name": field_name,
                                             "width": field_width,
+                                            "rows": field_rows,
                                             "masked": field_masked,
                                             "data": field_data,
                                             "style": make_style(state)

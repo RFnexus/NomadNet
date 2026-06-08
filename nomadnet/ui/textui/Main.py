@@ -9,6 +9,7 @@ from .Interfaces import *
 from .Map import *
 from .Log import *
 from .Guide import *
+from .Editor import *
 import urwid
 
 class SubDisplays():
@@ -23,6 +24,7 @@ class SubDisplays():
         self.map_display = MapDisplay(self.app)
         self.log_display = LogDisplay(self.app)
         self.guide_display = GuideDisplay(self.app)
+        self.page_editor_display = PageEditorDisplay(self.app) if app.enable_node else None
 
         if app.firstrun:
             self.active_display = self.guide_display
@@ -136,6 +138,14 @@ class MainDisplay():
         self.sub_displays.active_display = self.sub_displays.guide_display
         self.update_active_sub_display()
 
+    def show_page_editor(self, user_data):
+        if not self.app.enable_node:
+            return
+        self.sub_displays.active_display = self.sub_displays.page_editor_display
+        self.update_active_sub_display()
+        self.sub_displays.page_editor_display.start()
+        self.frame.focus_position = "body"
+
     def update_active_sub_display(self):
         self.frame.contents["body"] = (self.sub_displays.active().widget, None)
         self.update_active_shortcuts()
@@ -195,13 +205,17 @@ class MenuDisplay():
         button_config         = (10, MenuButton("Config", on_press=handler.show_config))
         button_interfaces     = (14, MenuButton("Interfaces", on_press=handler.show_interfaces))
         button_guide          = (9,  MenuButton("Guide", on_press=handler.show_guide))
+        button_mynode         = (11, MenuButton("My Node", on_press=handler.show_page_editor))
         button_quit           = (8,  MenuButton("Quit", on_press=handler.quit))
 
         # buttons = [menu_text, button_conversations, button_node, button_directory, button_map]
-        if self.app.config["textui"]["hide_guide"]:
-            buttons = [menu_text, button_conversations, button_network, button_channels, button_log, button_interfaces, button_config, button_quit]
-        else:
-            buttons = [menu_text, button_conversations, button_network, button_channels, button_log, button_interfaces, button_config, button_guide, button_quit]
+        buttons = [menu_text, button_conversations, button_network]
+        if self.app.enable_node:
+            buttons.append(button_mynode)
+        buttons += [button_channels, button_log, button_interfaces, button_config]
+        if not self.app.config["textui"]["hide_guide"]:
+            buttons.append(button_guide)
+        buttons.append(button_quit)
 
         columns = MenuColumns(buttons, dividechars=1)
         columns.handler = handler
