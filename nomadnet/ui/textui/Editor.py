@@ -12,6 +12,8 @@ from nomadnet.vendor.additional_urwid_widgets import IndicativeListBox
 PREVIEW_DELAY = 0.4
 PANE_WEIGHTS  = {"files": 0.22, "editor": 0.40, "preview": 0.38}
 PANE_ORDER    = ["files", "editor", "preview"]
+MAX_HIGHLIGHT_CHARS = 50000
+MAX_PREVIEW_CHARS    = 100000
 
 
 
@@ -140,7 +142,7 @@ class MicronEdit(ReadlineEdit):
         text = self.caption + self.edit_text
         if text != self._hl_text:
             self._hl_text = text
-            self._hl_attrib = highlight_micron(text)
+            self._hl_attrib = [] if len(text) > MAX_HIGHLIGHT_CHARS else highlight_micron(text)
         return text, self._hl_attrib
 
 
@@ -173,10 +175,15 @@ class GutterEdit(MicronEdit):
 
         edit_canv = super().render((tw,), focus=False)
         h = edit_canv.rows()
+        cheap = len(self.edit_text) > MAX_HIGHLIGHT_CHARS
         rows = []
         for i, line in enumerate(self.edit_text.split("\n"), 1):
             rows.append(str(i).rjust(gw - 1) + " ")
-            rows.extend([""] * (max(1, urwid.Text(line).rows((tw,))) - 1))
+            if cheap:
+                wrapped = max(1, (len(line) + tw - 1) // tw)
+            else:
+                wrapped = max(1, urwid.Text(line).rows((tw,)))
+            rows.extend([""] * (wrapped - 1))
         rows = (rows + [""] * h)[:h]
 
 
@@ -1021,6 +1028,9 @@ class PageEditorDisplay():
         self.render_preview()
 
     def render_preview(self):
+        if len(self.editor.edit_text) > MAX_PREVIEW_CHARS:
+            self.set_preview_note("File too large to preview (%d KB). Editing still works." % (len(self.editor.edit_text) // 1000))
+            return
         pos = self._preview_scrollpos()
         try:
             body = self.preview_browser.render_markup_buffer(self.editor.edit_text)
