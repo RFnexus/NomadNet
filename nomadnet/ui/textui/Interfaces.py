@@ -74,6 +74,48 @@ def format_bytes(bytes_value):
     else:
         return f"{size:.1f} {units[unit_index]}"
 
+
+def format_announce_rate(hz):
+    try:
+        hz = float(hz or 0)
+    except (TypeError, ValueError):
+        return "-"
+    if hz <= 0:
+        return "-"
+    per_hour = hz * 3600
+    if per_hour < 100:
+        return "<1/hr" if per_hour < 1 else "%d/hr" % round(per_hour)
+    return "%d/min" % round(hz * 60)
+
+def format_speed(bps):
+    try:
+        bps = float(bps or 0)
+    except (TypeError, ValueError):
+        return "-"
+    try:
+        return RNS.prettyspeed(bps)
+    except Exception:
+        return "%d bps" % int(bps)
+
+def interface_mode_str(mode):
+    modes = {
+        1: "Full",            # MODE_FULL
+        2: "Point-to-Point",  # MODE_POINT_TO_POINT
+        3: "Access Point",    # MODE_ACCESS_POINT
+        4: "Roaming",         # MODE_ROAMING
+        5: "Boundary",        # MODE_BOUNDARY
+        6: "Gateway",         # MODE_GATEWAY
+    }
+    return modes.get(mode, "Full")
+
+def connection_markup(glyphs, is_connected, label=None):
+    icon = glyphs.get("connected" if is_connected else "disconnected", "")
+    if label is None:
+        label = "Connected" if is_connected else "Disconnected"
+    attr = "connected_status" if is_connected else "disconnected_status"
+    sep = " " if icon else ""
+    return (attr, "%s%s%s" % (icon, sep, label))
+
 def _get_cols_rows():
     return nomadnet.NomadNetworkApp.get_shared_instance().ui.screen.get_cols_rows()
 
@@ -589,7 +631,7 @@ INTERFACE_FIELDS = {
             "type": "edit",
             "label": "Target Port: ",
             "default": "",
-            "placeholder": "e.g., 8080",
+            "placeholder": "e.g., 4242",
             "validation": ["required", "number"],
             "transform": lambda x: int(x.strip()) if x.strip() else None
         },
@@ -1124,7 +1166,7 @@ INTERFACE_FIELDS = {
 
 ### INTERFACE WIDGETS ####
 class SelectableInterfaceItem(urwid.WidgetWrap):
-    def __init__(self, parent, name, is_connected, is_enabled, iface_type, tx, rx, icon="?", iface_options=None, profiles_label=None):
+    def __init__(self, parent, name, is_connected, is_enabled, iface_type, tx, rx, icon="?", iface_options=None, profiles_label=None, announce_rate="N/A"):
         self.parent = parent
         self._selectable = True
         self.icon = icon
@@ -1137,12 +1179,9 @@ class SelectableInterfaceItem(urwid.WidgetWrap):
         if is_enabled:
             enabled_txt = ("connected_status", "Enabled")
         else:
-            enabled_txt = ("disconnected_status", "Disabled")
+            enabled_txt = ("disabled_status", "Disabled")
 
-        if is_connected:
-            connected_txt = ("connected_status", "Connected")
-        else:
-            connected_txt = ("disconnected_status", "Disconnected")
+        connected_txt = connection_markup(parent.g, is_connected)
 
         self.selection_txt = urwid.Text(" ")
         self.title_widget = urwid.Text(("interface_title", f"{icon}  {name}"))
@@ -1154,37 +1193,48 @@ class SelectableInterfaceItem(urwid.WidgetWrap):
 
         self.tx_widget = urwid.Text(("value", format_bytes(tx)))
         self.rx_widget = urwid.Text(("value", format_bytes(rx)))
+        self.announce_widget = urwid.Text(("value", announce_rate))
 
         self.status_widget = urwid.Text(enabled_txt)
         self.connection_widget = urwid.Text(connected_txt)
 
-        rows = [
-            urwid.Columns([
+        if is_enabled:
+            status_row = urwid.Columns([
                 (10, urwid.Text(("key", "Status: "))),
                 (10, self.status_widget),
                 (3, urwid.Text(" | ")),
                 self.connection_widget,
-            ]),
+            ])
+        else:
+            status_row = urwid.Columns([
+                (10, urwid.Text(("key", "Status: "))),
+                self.status_widget,
+            ])
+
+        rows = [
+            status_row,
 
             urwid.Columns([
                 (10, urwid.Text(("key", "Type:"))),
                 urwid.Text(("value", iface_type)),
             ]),
-
-            urwid.Divider("-"),
-
-            urwid.Columns([
-                (10, urwid.Text(("key", "TX:"))),
-                (15, self.tx_widget),
-                (10, urwid.Text(("key", "RX:"))),
-                self.rx_widget,
-            ]),
         ]
 
         if profiles_label is not None:
-            rows.insert(2, urwid.Columns([
+            rows.append(urwid.Columns([
                 (10, urwid.Text(("key", "Profiles:"))),
                 urwid.Text(("value", profiles_label)),
+            ]))
+
+        if is_enabled:
+            rows.append(urwid.Divider("-"))
+            rows.append(urwid.Columns([
+                (5, urwid.Text(("key", "TX:"))),
+                (14, self.tx_widget),
+                (5, urwid.Text(("key", "RX:"))),
+                (14, self.rx_widget),
+                (12, urwid.Text(("key", "Announces:"))),
+                self.announce_widget,
             ]))
 
         pile_contents = [title_content] + rows
@@ -1209,7 +1259,7 @@ class SelectableInterfaceItem(urwid.WidgetWrap):
         if self.is_enabled:
             self.status_widget.set_text(("connected_status", "Enabled"))
         else:
-            self.status_widget.set_text(("disconnected_status", "Disabled"))
+            self.status_widget.set_text(("disabled_status", "Disabled"))
 
     def selectable(self):
         return True
@@ -1242,9 +1292,17 @@ class SelectableInterfaceItem(urwid.WidgetWrap):
             return None
         return key
 
-    def update_stats(self, tx, rx):
+    def update_stats(self, tx, rx, announce_rate=None):
         self.tx_widget.set_text(("value", format_bytes(tx)))
         self.rx_widget.set_text(("value", format_bytes(rx)))
+        if announce_rate is not None:
+            self.announce_widget.set_text(("value", announce_rate))
+
+    def update_connection(self, is_connected):
+        if is_connected == self.is_connected:
+            return
+        self.is_connected = is_connected
+        self.connection_widget.set_text(connection_markup(self.parent.g, is_connected))
 
 class InterfaceOptionItem(urwid.WidgetWrap):
     def __init__(self, parent_display, label, value, on_select=None):
@@ -1420,6 +1478,15 @@ class InterfaceFiller(urwid.WidgetWrap):
             return None
         if key == "ctrl t":
             self.app.ui.main_display.sub_displays.interface_display.toggle_view_mode()
+            return None
+        if key == "ctrl s":
+            self.app.ui.main_display.sub_displays.interface_display.save_current_profile()
+            return None
+        if key == "ctrl f":
+            self.app.ui.main_display.sub_displays.interface_display.cycle_filter()
+            return None
+        if key == "ctrl o":
+            self.app.ui.main_display.sub_displays.interface_display.toggle_focused_interface()
             return None
         if key == "ctrl a":
             # add interface
@@ -2015,6 +2082,7 @@ class AddInterfaceView(urwid.WidgetWrap):
 
             self.parent.interface_items.append(new_item)
             self.parent._rebuild_list()
+            self.parent.mark_restart_pending()
 
             self.show_message(f"Interface {name} added. Restart NomadNet to start using this interface")
 
@@ -2200,8 +2268,10 @@ class EditInterfaceView(AddInterfaceView):
 
         updated_config = {
             "type": interface_type,
-            "interface_enabled": True
+            "interface_enabled": self.interface_config.get("interface_enabled", True),
         }
+        if "enabled" in self.interface_config:
+            updated_config["enabled"] = self.interface_config["enabled"]
 
         for field_key, field in self.fields.items():
             if field_key not in ["name", "custom_parameters", "type", "subinterfaces"]:
@@ -2261,6 +2331,7 @@ class EditInterfaceView(AddInterfaceView):
                     break
 
             self.parent._rebuild_list()
+            self.parent.mark_restart_pending()
             self.show_message(f"Interface {new_name} updated. Restart NomadNet for these changes to take effect")
 
         except Exception as e:
@@ -2330,42 +2401,41 @@ class ShowInterface(urwid.WidgetWrap):
         footer = urwid.Pile(footer_content)
 
         # status widgets
-        self.status_text = urwid.Text(("connected_status" if self.is_enabled else "disconnected_status",
+        self.status_text = urwid.Text(("connected_status" if self.is_enabled else "disabled_status",
                                        "Enabled" if self.is_enabled else "Disabled"))
 
-        self.status_indicator = urwid.Text(("connected_status" if self.is_enabled else "disconnected_status",
+        self.status_indicator = urwid.Text(("connected_status" if self.is_enabled else "disabled_status",
                                             self.parent.g['selected'] if self.is_enabled else self.parent.g[
                                                 'unselected']))
 
-        self.connection_text = urwid.Text(("connected_status" if self.is_connected else "disconnected_status",
-                                           "Connected" if self.is_connected else "Disconnected"))
+        self.connection_text = urwid.Text(connection_markup(self.parent.g, self.is_connected))
+
+        if self.is_enabled:
+            status_columns = urwid.Columns([
+                (10, urwid.Text(("key", "Status:"))),
+                (4, self.status_indicator),
+                (8, self.status_text),
+                (3, urwid.Text(" | ")),
+                self.connection_text,
+            ])
+        else:
+            status_columns = urwid.Columns([
+                (10, urwid.Text(("key", "Status:"))),
+                (4, self.status_indicator),
+                self.status_text,
+            ])
 
         self.info_rows = [
             urwid.Columns([
                 (10, urwid.Text(("key", "Type:"))),
                 urwid.Text(("value", f"{_get_interface_icon(self.parent.glyphset, iface_type)} {iface_type}")),
             ]),
-            urwid.Columns([
-                (10, urwid.Text(("key", "Status:"))),
-                (4, self.status_indicator),
-                (8, self.status_text),
-                (3, urwid.Text(" | ")),
-                self.connection_text,
-            ]),
+            status_columns,
             urwid.Divider("-")
         ]
 
-        self.tx_text = urwid.Text(("value", format_bytes(self.tx)))
-        self.rx_text = urwid.Text(("value", format_bytes(self.rx)))
-
-        self.stat_row = urwid.Columns([
-            (10, urwid.Text(("key", "TX:"))),
-            (15, self.tx_text),
-            (10, urwid.Text(("key", "RX:"))),
-            self.rx_text,
-        ])
-
-        self.info_rows.append(self.stat_row)
+        for row in self._build_statistics():
+            self.info_rows.append(row)
         self.info_rows.append(urwid.Divider("-"))
 
         self.bandwidth_chart = InterfaceBandwidthChart(history_length=self.history_length, glyphset=self.parent.glyphset)
@@ -2403,7 +2473,7 @@ class ShowInterface(urwid.WidgetWrap):
         ])
 
         self.disconnected_message = urwid.Filler(
-            urwid.Text(("disconnected_status",
+            urwid.Text(("disabled_status",
                         "Charts not available - Interface is not connected"),
                        align="center"),
             valign="top"
@@ -2539,20 +2609,160 @@ class ShowInterface(urwid.WidgetWrap):
 
         super().__init__(self.content_box)
 
+    def _stat_rows_spec(self, stats):
+        # Ordered (row_id, label) pairs that apply to this interface
+        spec = [("mode", "Mode:")]
+        if stats.get("bitrate") is not None:
+            spec.append(("bitrate", "Bitrate:"))
+        spec.append(("tx", "TX:"))
+        spec.append(("rx", "RX:"))
+        if "rxs" in stats and "txs" in stats:
+            spec.append(("speed", "Speed:"))
+        if stats.get("incoming_announce_frequency") is not None:
+            spec.append(("announce", "Announces:"))
+        if stats.get("incoming_pr_frequency") is not None:
+            spec.append(("pathreq", "Path Reqs:"))
+        if stats.get("clients") is not None:
+            spec.append(("clients", "Clients:"))
+        if stats.get("peers") is not None:
+            spec.append(("peers", "Peers:"))
+        if stats.get("ifac_netname") is not None or stats.get("ifac_signature") is not None:
+            spec.append(("ifac", "Network:"))
+        if stats.get("announce_queue") is not None:
+            spec.append(("queued", "Queued:"))
+        if "held_announces" in stats:
+            spec.append(("held", "Held:"))
+        return spec
+
+    def _radio_rows_spec(self, stats):
+        spec = []
+        if "channel_load_short" in stats and "channel_load_long" in stats:
+            spec.append(("chload", "Ch. Load:"))
+        if "airtime_short" in stats and "airtime_long" in stats:
+            spec.append(("airtime", "Airtime:"))
+        if "noise_floor" in stats:
+            spec.append(("noise", "Noise Fl.:"))
+        if stats.get("battery_percent") is not None:
+            spec.append(("battery", "Battery:"))
+        if "cpu_load" in stats or "cpu_temp" in stats:
+            spec.append(("cpu", "CPU:"))
+        if "mem_load" in stats:
+            spec.append(("mem", "Memory:"))
+        return spec
+
+    def _fmt_pct(self, v):
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            return "0"
+        if v <= 1.0:
+            v *= 100.0
+        return "%d" % int(round(v))
+
+    def _fmt_pct_pair(self, short_v, long_v):
+        return "%s%% (15s), %s%% (1h)" % (self._fmt_pct(short_v), self._fmt_pct(long_v))
+
+    def _format_stat(self, row_id, stats):
+        if row_id == "mode":
+            return interface_mode_str(stats.get("mode"))
+        if row_id == "bitrate":
+            return format_speed(stats.get("bitrate"))
+        if row_id == "tx":
+            return format_bytes(stats.get("txb", 0))
+        if row_id == "rx":
+            return format_bytes(stats.get("rxb", 0))
+        if row_id == "speed":
+            return "TX %s    RX %s" % (format_speed(stats.get("txs", 0)), format_speed(stats.get("rxs", 0)))
+        if row_id == "announce":
+            return "In %s    Out %s" % (format_announce_rate(stats.get("incoming_announce_frequency")),
+                                        format_announce_rate(stats.get("outgoing_announce_frequency")))
+        if row_id == "pathreq":
+            return "In %s    Out %s" % (format_announce_rate(stats.get("incoming_pr_frequency")),
+                                        format_announce_rate(stats.get("outgoing_pr_frequency")))
+        if row_id == "clients":
+            return str(stats.get("clients"))
+        if row_id == "peers":
+            return "%s reachable" % stats.get("peers")
+        if row_id == "ifac":
+            netname = stats.get("ifac_netname")
+            size = stats.get("ifac_size")
+            bits = ("%d-bit IFAC" % (size * 8)) if size else "IFAC"
+            return ("%s (%s)" % (netname, bits)) if netname else bits
+        if row_id == "queued":
+            n = stats.get("announce_queue") or 0
+            return "%d announce%s" % (n, "" if n == 1 else "s")
+        if row_id == "held":
+            n = stats.get("held_announces") or 0
+            return "%d announce%s" % (n, "" if n == 1 else "s")
+        if row_id == "chload":
+            return self._fmt_pct_pair(stats.get("channel_load_short"), stats.get("channel_load_long"))
+        if row_id == "airtime":
+            return self._fmt_pct_pair(stats.get("airtime_short"), stats.get("airtime_long"))
+        if row_id == "noise":
+            nf = stats.get("noise_floor")
+            return ("%s dBm" % nf) if nf is not None else "Unknown"
+        if row_id == "battery":
+            try:
+                return "%d%% (%s)" % (int(stats.get("battery_percent")), stats.get("battery_state", "Unknown"))
+            except (TypeError, ValueError):
+                return "Unknown"
+        if row_id == "cpu":
+            load = stats.get("cpu_load")
+            temp = stats.get("cpu_temp")
+            parts = []
+            if load is not None:
+                parts.append("%s%% load" % load)
+            if temp is not None:
+                parts.append("%s°C" % temp)
+            return ", ".join(parts) if parts else "Unknown"
+        if row_id == "mem":
+            m = stats.get("mem_load")
+            return ("%s%%" % m) if m is not None else "Unknown"
+        return ""
+
+    def _build_statistics(self):
+        # Builds the live statistics section and records the dynamic widgets in
+        # self.stat_w so they can be refreshed in place each poll tick.
+        self.stat_w = {}
+
+        def stat_row(row_id, label):
+            w = urwid.Text(("value", self._format_stat(row_id, self.stats)))
+            self.stat_w[row_id] = w
+            return urwid.Columns([(12, urwid.Text(("key", label))), w])
+
+        rows = [urwid.Text(("interface_title", "Statistics"), align="left")]
+        for row_id, label in self._stat_rows_spec(self.stats):
+            rows.append(stat_row(row_id, label))
+
+        radio = self._radio_rows_spec(self.stats)
+        if radio:
+            rows.append(urwid.Divider("-"))
+            rows.append(urwid.Text(("interface_title", "Radio"), align="left"))
+            for row_id, label in radio:
+                rows.append(stat_row(row_id, label))
+
+        return rows
+
+    def _refresh_stats(self, stats):
+        for row_id, w in self.stat_w.items():
+            try:
+                w.set_text(("value", self._format_stat(row_id, stats)))
+            except Exception:
+                pass
+
     def update_status_display(self):
         if self.is_enabled:
             self.status_indicator.set_text(("connected_status", self.parent.g['selected']))
             self.status_text.set_text(("connected_status", "Enabled"))
         else:
-            self.status_indicator.set_text(("disconnected_status", self.parent.g['unselected']))
-            self.status_text.set_text(("disconnected_status", "Disabled"))
+            self.status_indicator.set_text(("disabled_status", self.parent.g['unselected']))
+            self.status_text.set_text(("disabled_status", "Disabled"))
 
     def update_connection_display(self, is_connected):
         old_connection_state = self.is_connected
         self.is_connected = is_connected
 
-        self.connection_text.set_text(("connected_status" if self.is_connected else "disconnected_status",
-                                       "Connected" if self.is_connected else "Disconnected"))
+        self.connection_text.set_text(connection_markup(self.parent.g, self.is_connected))
 
         if old_connection_state != self.is_connected:
             body_pile = self.frame.body.body[0].original_widget
@@ -2568,11 +2778,8 @@ class ShowInterface(urwid.WidgetWrap):
             if chart_index is not None:
                 if self.is_connected:
                     new_widget = self.horizontal_charts if self.is_horizontal else self.vertical_charts
-                    if not self.started:
-                        self.start()
                 else:
                     new_widget = self.disconnected_box
-                    self.started = False
 
                 body_pile.contents[chart_index] = (new_widget, body_pile.options())
 
@@ -2600,7 +2807,7 @@ class ShowInterface(urwid.WidgetWrap):
             if hasattr(self.parent.app.ui, 'loop') and self.parent.app.ui.loop is not None:
                 self.parent.app.ui.loop.draw_screen()
 
-            self.show_restart_required_message()
+            self.parent.mark_restart_pending()
 
         except Exception as e:
             self.show_error_message(f"Error updating interface: {str(e)}")
@@ -2770,65 +2977,70 @@ class ShowInterface(urwid.WidgetWrap):
                 break
 
     def start(self):
-        if not self.started and self.is_connected:
+        # Poll while the detail view is open, regardless of connection state, so
+        # that the connection indicator and live stats keep refreshing and a
+        # dropped link can be seen to come back up.
+        if not self.started:
             self.started = True
             self.parent.app.ui.loop.set_alarm_in(1, self.update_bandwidth_charts)
+
+    def _show_disconnect_overlay(self):
+        # Uses its own overlay object so it never collides with the interface
+        # list's disconnect overlay handling while both poll loops are running.
+        if getattr(self, "_disconnect_overlay", None) is not None and self.parent.widget is self._disconnect_overlay:
+            return
+        dialog_text = urwid.Pile([
+            urwid.Text(("disconnected_status", "(!) RNS Instance Disconnected"), align="center"),
+            urwid.Text("Waiting to Reconnect...", align="center"),
+        ])
+        dialog_box = urwid.LineBox(urwid.Filler(dialog_text))
+        self._disconnect_overlay = urwid.Overlay(
+            dialog_box, self, align='center', width=35, valign='middle', height=4)
+        self.parent.widget = self._disconnect_overlay
+        self.parent.app.ui.main_display.update_active_sub_display()
 
     def update_bandwidth_charts(self, loop, user_data):
         if not self.started:
             return
 
         try:
-            interface_stats = self.parent.app.interface_stats
-            stats_lookup = {iface['short_name']: iface for iface in interface_stats['interfaces']}
-            stats = stats_lookup.get(self.iface_name, {})
+            # The interface list's poll loop owns the actual stats fetch; when the
+            # shared RNS instance drops it flags _rns_disconnected, which we surface
+            # here too instead of silently charting stale data.
+            if getattr(self.parent, "_rns_disconnected", False):
+                self._show_disconnect_overlay()
+            else:
+                if getattr(self, "_disconnect_overlay", None) is not None and self.parent.widget is self._disconnect_overlay:
+                    self.parent.widget = self
+                    self.parent.app.ui.main_display.update_active_sub_display()
 
-            tx = stats.get("txb", self.tx)
-            rx = stats.get("rxb", self.rx)
+                interface_stats = self.parent.app.interface_stats
+                stats_lookup = {iface['short_name']: iface for iface in interface_stats['interfaces']}
+                stats = stats_lookup.get(self.iface_name, {})
 
-            new_connection_status = stats.get("status", False)
-            if new_connection_status != self.is_connected:
-                self.update_connection_display(new_connection_status)
+                tx = stats.get("txb", self.tx)
+                rx = stats.get("rxb", self.rx)
 
-                if not self.is_connected:
-                    return
+                new_connection_status = stats.get("status", False)
+                if new_connection_status != self.is_connected:
+                    self.update_connection_display(new_connection_status)
 
-            self.tx_text.set_text(("value", format_bytes(tx)))
-            self.rx_text.set_text(("value", format_bytes(rx)))
+                self._refresh_stats(stats)
 
-            self.bandwidth_chart.update(rx, tx)
+                if self.is_connected:
+                    self.bandwidth_chart.update(rx, tx)
 
-            rx_chart, tx_chart, peak_rx, peak_tx = self.bandwidth_chart.get_charts(height=8)
+                    rx_chart, tx_chart, peak_rx, peak_tx = self.bandwidth_chart.get_charts(height=8)
 
-            self.rx_chart_text.set_text(rx_chart)
-            self.tx_chart_text.set_text(tx_chart)
-            self.rx_peak_text.set_text(f"Peak: {peak_rx}")
-            self.tx_peak_text.set_text(f"Peak: {peak_tx}")
+                    self.rx_chart_text.set_text(rx_chart)
+                    self.tx_chart_text.set_text(tx_chart)
+                    self.rx_peak_text.set_text(f"Peak: {peak_rx}")
+                    self.tx_peak_text.set_text(f"Peak: {peak_tx}")
 
-            self.tx = tx
-            self.rx = rx
+                self.tx = tx
+                self.rx = rx
         except Exception as e:
-            if not hasattr(self.parent,
-                           'disconnect_overlay') or self.parent.widget is not self.parent.disconnect_overlay:
-                dialog_text = urwid.Pile([
-                    urwid.Text(("disconnected_status", "(!) RNS Instance Disconnected"), align="center"),
-                    urwid.Text("Waiting to Reconnect...", align="center")
-                ])
-                dialog_content = urwid.Filler(dialog_text)
-                dialog_box = urwid.LineBox(dialog_content)
-
-                self.parent.disconnect_overlay = urwid.Overlay(
-                    dialog_box,
-                    self,
-                    align='center',
-                    width=35,
-                    valign='middle',
-                    height=4
-                )
-
-                self.parent.widget = self.parent.disconnect_overlay
-                self.parent.app.ui.main_display.update_active_sub_display()
-                self.started = False
+            self._show_disconnect_overlay()
         finally:
             if self.started:
                 loop.set_alarm_in(1, self.update_bandwidth_charts)
@@ -2842,21 +3054,27 @@ class ShowInterface(urwid.WidgetWrap):
         self.parent.switch_to_edit_interface(self.iface_name)
 
 class InterfaceTile(urwid.WidgetWrap):
-    def __init__(self, parent, name, is_connected, is_enabled, iface_type, icon):
+    def __init__(self, parent, name, is_connected, is_enabled, iface_type, icon, announce_rate="0"):
         self.parent = parent
         self.name = name
         self.icon = icon
         self.g = parent.g
-        self.dot_style = "connected_status" if is_enabled else "disconnected_status"
+        self.dot_style = "connected_status" if is_enabled else "disabled_status"
         self.dot = self.g['selected'] if is_enabled else self.g['unselected']
         self.title_widget = urwid.Text("", wrap="clip")
         typ = urwid.Text(("value", iface_type), wrap="clip")
-        status = urwid.Text([
-            (self.dot_style, "Enabled" if is_enabled else "Disabled"),
-            ("value", f"  {self.g['sep_dot']}  "),
-            ("connected_status" if is_connected else "disconnected_status", "Conn." if is_connected else "Disc."),
-        ], wrap="clip")
-        inner = urwid.Pile([self.title_widget, typ, status])
+        if is_enabled:
+            status = urwid.Text([
+                (self.dot_style, "Enabled"),
+                ("value", f"  {self.g['sep_dot']}  "),
+                connection_markup(self.g, is_connected, "Conn." if is_connected else "Disc."),
+            ], wrap="clip")
+        else:
+            status = urwid.Text([(self.dot_style, "Disabled")], wrap="clip")
+        inner_items = [self.title_widget, typ, status]
+        if is_enabled:
+            inner_items.append(urwid.Text([("key", "Announces "), ("value", announce_rate)], wrap="clip"))
+        inner = urwid.Pile(inner_items)
         self.box = urwid.LineBox(
             urwid.Padding(inner, left=1, right=1),
             tlcorner="╭", trcorner="╮", blcorner="╰", brcorner="╯",
@@ -2987,11 +3205,42 @@ class ProfilesView(urwid.WidgetWrap):
 
     def select(self, pid):
         if pid == "__default__":
-            self.profiles.select_default()
+            if self.profiles.default_members is None:
+                return
+            count = len(self.profiles.default_members)
+            title = "Switch to Default"
+            msg = "Restore your saved manual setup?\nThis enables %d interface%s and disables the rest." % (count, "" if count == 1 else "s")
         else:
-            self.profiles.select_profile(pid)
-        self.refresh(focus_pid=pid)
-        self.status.set_text(("connected_status", "Restart NomadNet for changes to take effect"))
+            p = self.profiles.get(pid)
+            if p is None:
+                return
+            count = self.profiles.member_count(p)
+            title = "Switch Profile"
+            msg = "Switch to profile '%s'?\nThis enables its %d interface%s and disables the rest." % (p["name"] or "(unnamed)", count, "" if count == 1 else "s")
+
+        def yes(_b):
+            self.dismiss_dialog()
+            if pid == "__default__":
+                self.profiles.select_default()
+            else:
+                self.profiles.select_profile(pid)
+            self.parent.mark_restart_pending()
+            self.refresh(focus_pid=pid)
+            self.status.set_text(("connected_status", "Restart NomadNet for changes to take effect"))
+
+        def no(_b):
+            self.dismiss_dialog()
+
+        pile = urwid.Pile([
+            urwid.Text(msg, align="center"),
+            urwid.Divider(),
+            urwid.Columns([
+                (urwid.WEIGHT, 0.45, urwid.Button("Yes", on_press=yes)),
+                (urwid.WEIGHT, 0.1, urwid.Text("")),
+                (urwid.WEIGHT, 0.45, urwid.Button("No", on_press=no)),
+            ]),
+        ])
+        self._overlay(DialogLineBox(urwid.Filler(pile, urwid.TOP), parent=self, title=title), height=10)
 
     def _overlay(self, dialog, height=8, width=50):
         frame = self.app.ui.main_display.frame
@@ -3012,6 +3261,20 @@ class ProfilesView(urwid.WidgetWrap):
                 self.refresh(focus_pid=pid)
 
         self._prompt("New Profile", edit, ok)
+
+    def save_current(self):
+        n = len(self.profiles.enabled_set())
+        edit = ReadlineEdit(caption="Name (%d enabled): " % n)
+
+        def ok(_b):
+            val = edit.get_edit_text().strip()
+            self.dismiss_dialog()
+            if val:
+                pid = self.profiles.save_current_as_profile(val)
+                self.refresh(focus_pid=pid)
+                self.status.set_text(("connected_status", "Saved current setup (%d interface%s) as a profile" % (n, "" if n == 1 else "s")))
+
+        self._prompt("Save Current as Profile", edit, ok)
 
     def rename_profile(self):
         w = self._focused()
@@ -3075,6 +3338,8 @@ class ProfilesView(urwid.WidgetWrap):
             self.parent.show_interfaces(); return None
         if key == "ctrl a":
             self.new_profile(); return None
+        if key == "ctrl s":
+            self.save_current(); return None
         if key == "ctrl e":
             self.rename_profile(); return None
         if key == "ctrl x":
@@ -3099,6 +3364,11 @@ class InterfaceDisplay:
 
         self.active_tab = "interfaces"
         self.iface_view_mode = "rows"
+        self.iface_filter = "all"
+        self.total_interfaces = 0
+        self.restart_pending = False
+        self._notice_shown = False
+        self._rns_disconnected = False
         self.profiles_view = None
 
         self._build_interface_items()
@@ -3106,11 +3376,12 @@ class InterfaceDisplay:
         self.list_walker = urwid.SimpleFocusListWalker(self._interface_list_contents())
         self.list_box = urwid.ListBox(self.list_walker)
 
-        self.body_rows = max(3, self.list_rows - 3)
+        self.body_rows = max(3, self.list_rows - 4)
         self.box_adapter = urwid.BoxAdapter(self.list_box, self.body_rows)
 
         self.tabs_pile = urwid.Pile([
             ('pack', self._make_tab_bar("interfaces")),
+            ('pack', self._make_filter_bar()),
             ('pack', urwid.Divider()),
             self.box_adapter,
         ])
@@ -3118,13 +3389,41 @@ class InterfaceDisplay:
         self.shortcuts_display = InterfaceDisplayShortcuts(self.app)
         self.widget = self.interfaces_display
 
+    def _empty_message(self):
+        if self.iface_filter != "all" and self.total_interfaces > 0:
+            return "No %s interfaces." % self.iface_filter
+        return "No interfaces found. Press Ctrl + A to add a new interface "
+
     def _interface_list_contents(self):
         if not self.interface_items:
-            return [urwid.Text(("interface_title", "No interfaces found. Press Ctrl + A to add a new interface "), align="center")]
+            return [urwid.Text(("interface_title", self._empty_message()), align="center")]
         return list(self.interface_items)
 
+    def _make_filter_bar(self):
+        cols = [('weight', 1, urwid.Text(""))]
+        for key, label in (("all", "All"), ("enabled", "Enabled"), ("disabled", "Disabled")):
+            sel = self.iface_filter == key
+            mark = self.g['selected'] if sel else self.g['unselected']
+            style = "interface_tile_focus" if sel else "interface_title"
+            cols.append(('pack', ClickableIcon((style, "%s %s   " % (mark, label)), on_click=lambda k=key: self._set_filter(k))))
+        cols.append(('weight', 1, urwid.Text("")))
+        return urwid.Columns(cols, dividechars=0)
+
+    def _set_filter(self, key):
+        if key == self.iface_filter:
+            return
+        self.iface_filter = key
+        self._build_interface_items()
+        self._rebuild_list()
+        self.app.ui.main_display.update_active_sub_display()
+
+    def cycle_filter(self):
+        order = ["all", "enabled", "disabled"]
+        i = order.index(self.iface_filter) if self.iface_filter in order else 0
+        self._set_filter(order[(i + 1) % len(order)])
+
     def _make_tab_bar(self, active):
-        iface = f" Interfaces ({len(self.interface_items)}) "
+        iface = f" Interfaces ({self.total_interfaces}) "
         prof = " Profiles "
         if active == "interfaces":
             iface_w = ClickableIcon(("interface_title_selected", "["+iface+"]"), on_click=self.show_interfaces)
@@ -3141,7 +3440,7 @@ class InterfaceDisplay:
         ], dividechars=0)
 
     def _build_grid_listbox(self):
-        tiles = self.interface_tiles if self.interface_tiles else [urwid.Text("No interfaces found. Press Ctrl + A to add a new interface ", align="center")]
+        tiles = self.interface_tiles if self.interface_tiles else [urwid.Text(self._empty_message(), align="center")]
         self.iface_grid = urwid.GridFlow(tiles, cell_width=34, h_sep=2, v_sep=1, align="center")
         return urwid.ListBox(urwid.SimpleFocusListWalker([self.iface_grid]))
 
@@ -3208,7 +3507,7 @@ class InterfaceDisplay:
         if new_rows != self.terminal_rows or new_cols != self.terminal_cols:
             self.terminal_cols, self.terminal_rows = new_cols, new_rows
             self.list_rows = self.terminal_rows - self.iface_row_offset
-            self.body_rows = max(3, self.list_rows - 3)
+            self.body_rows = max(3, self.list_rows - 4 - (1 if self.restart_pending else 0))
 
             self.box_adapter.height = self.body_rows
 
@@ -3217,45 +3516,65 @@ class InterfaceDisplay:
         if self.started:
             loop.set_alarm_in(5, self.check_terminal_size)
 
+    def _show_disconnect_overlay(self):
+        # Surfaced when the shared RNS instance (rnsd) we are attached to goes away.
+        if hasattr(self, 'disconnect_overlay') and self.widget is self.disconnect_overlay:
+            return
+        if self.widget is not self.interfaces_display:
+            return
+        dialog_text = urwid.Pile([
+            urwid.Text(("disconnected_status", "(!) RNS Instance Disconnected"), align="center"),
+            urwid.Text("Waiting to Reconnect...", align="center"),
+        ])
+        dialog_box = urwid.LineBox(urwid.Filler(dialog_text))
+        self.disconnect_overlay = urwid.Overlay(
+            dialog_box,
+            self.interfaces_display,
+            align='center',
+            width=35,
+            valign='middle',
+            height=4,
+        )
+        self.widget = self.disconnect_overlay
+        self.app.ui.main_display.update_active_sub_display()
+
     def poll_stats(self, loop, user_data):
         self.poll_scheduler = True
         try:
-            if hasattr(self, 'disconnect_overlay') and self.widget is self.disconnect_overlay:
-                self.widget = self.interfaces_display
-                self.app.ui.main_display.update_active_sub_display()
-
-            def job(): self.app.interface_stats = self.app.rns.get_interface_stats()
-            threading.Thread(target=job, daemon=True).start()
-            interface_stats = self.app.interface_stats
-            stats_lookup = {iface['short_name']: iface for iface in interface_stats['interfaces']}
-            for item in self.interface_items:
-                # use interface name as the key
-                stats_for_interface = stats_lookup.get(item.name)
-                if stats_for_interface:
-                    tx = stats_for_interface.get("txb", 0)
-                    rx = stats_for_interface.get("rxb", 0)
-                    item.update_stats(tx, rx)
-        except Exception as e:
-            if not hasattr(self, 'disconnect_overlay') or self.widget is not self.disconnect_overlay:
-                dialog_text = urwid.Pile([
-                    urwid.Text(("disconnected_status", "(!) RNS Instance Disconnected"), align="center"),
-                    urwid.Text(("Waiting to Reconnect..."), align="center")
-                    ])
-                dialog_content = urwid.Filler(dialog_text)
-                dialog_box = urwid.LineBox(dialog_content)
-
-                self.disconnect_overlay = urwid.Overlay(
-                    dialog_box,
-                    self.interfaces_display,
-                    align='center',
-                    width=35,
-                    valign='middle',
-                    height=4
-                )
-
-                if self.widget is self.interfaces_display:
-                    self.widget = self.disconnect_overlay
+            # React to the outcome of the previous (asynchronous) stats fetch. The
+            # fetch runs in a daemon thread so the UI never blocks on the RPC round
+            # trip; the thread cannot raise into this loop, so it reports failure via
+            # the _rns_disconnected flag instead.
+            if self._rns_disconnected:
+                self._show_disconnect_overlay()
+            else:
+                if hasattr(self, 'disconnect_overlay') and self.widget is self.disconnect_overlay:
+                    self.widget = self.interfaces_display
                     self.app.ui.main_display.update_active_sub_display()
+
+                interface_stats = self.app.interface_stats
+                stats_lookup = {iface['short_name']: iface for iface in interface_stats['interfaces']}
+                for item in self.interface_items:
+                    # use interface name as the key
+                    stats_for_interface = stats_lookup.get(item.name)
+                    if stats_for_interface:
+                        tx = stats_for_interface.get("txb", 0)
+                        rx = stats_for_interface.get("rxb", 0)
+                        announce_rate = format_announce_rate(stats_for_interface.get("incoming_announce_frequency", 0))
+                        item.update_stats(tx, rx, announce_rate)
+                        item.update_connection(stats_for_interface.get("status", False))
+                    else:
+                        item.update_connection(False)
+
+            def job():
+                try:
+                    self.app.interface_stats = self.app.rns.get_interface_stats()
+                    self._rns_disconnected = False
+                except Exception:
+                    self._rns_disconnected = True
+            threading.Thread(target=job, daemon=True).start()
+        except Exception as e:
+            self._show_disconnect_overlay()
         finally:
             if self.started:
                 loop.set_alarm_in(1, self.poll_stats)
@@ -3424,6 +3743,7 @@ class InterfaceDisplay:
             self.paste_status.set_text(("error", " Failed: " + str(e)))
             return
 
+        self.mark_restart_pending()
         self.dismiss_dialog()
         self.show_interfaces()
 
@@ -3445,6 +3765,7 @@ class InterfaceDisplay:
                     try: self.app.interface_profiles.remove_interface(interface_name)
                     except Exception: pass
 
+                self.mark_restart_pending()
                 self._build_interface_items()
                 self._rebuild_list()
                 self.dismiss_dialog()
@@ -3519,6 +3840,7 @@ class InterfaceDisplay:
 
             processed_interfaces[interface_name] = interface_data
 
+        self.total_interfaces = len(processed_interfaces)
         self.app.interface_stats = self.app.rns.get_interface_stats()
         stats_lookup = {interface['short_name']: interface for interface in self.app.interface_stats['interfaces']}
 
@@ -3526,6 +3848,11 @@ class InterfaceDisplay:
 
         for interface_name, interface_data in processed_interfaces.items():
             is_enabled = str(interface_data.get("enabled")).lower() not in ('false', 'off', 'no', '0') and str(interface_data.get("interface_enabled")).lower() not in ('false', 'off', 'no', '0')
+
+            if self.iface_filter == "enabled" and not is_enabled:
+                continue
+            if self.iface_filter == "disabled" and is_enabled:
+                continue
 
             iface_type = interface_data.get("type", "Unknown")
             icon = _get_interface_icon(self.glyphset, iface_type)
@@ -3536,10 +3863,12 @@ class InterfaceDisplay:
                 tx = stats_for_interface.get("txb", 0)
                 rx = stats_for_interface.get("rxb", 0)
                 is_connected = stats_for_interface["status"]
+                announce_rate = format_announce_rate(stats_for_interface.get("incoming_announce_frequency", 0))
             else:
                 tx = 0
                 rx = 0
                 is_connected = False
+                announce_rate = "-"
 
             profiles_label = profiles.label_for(interface_name) if profiles is not None else None
 
@@ -3552,7 +3881,8 @@ class InterfaceDisplay:
                 tx=tx,
                 rx=rx,
                 icon=icon,
-                profiles_label=profiles_label
+                profiles_label=profiles_label,
+                announce_rate=announce_rate
             )
 
             self.interface_items.append(item)
@@ -3564,12 +3894,104 @@ class InterfaceDisplay:
                 is_enabled=is_enabled,
                 iface_type=iface_type,
                 icon=icon,
+                announce_rate=announce_rate,
             )
             self.interface_tiles.append(tile)
 
     def _rebuild_list(self):
         self._set_iface_body()
         self.tabs_pile.contents[0] = (self._make_tab_bar("interfaces"), self.tabs_pile.options('pack'))
+        self.tabs_pile.contents[1] = (self._make_filter_bar(), self.tabs_pile.options('pack'))
+
+    def mark_restart_pending(self):
+        self.restart_pending = True
+        if self._notice_shown:
+            return
+        try:
+            mark = "!" if self.glyphset == "plain" else "⚠"
+            banner = urwid.AttrMap(
+                urwid.Text("%s Interfaces have been updated. Restart required" % mark, align="center"),
+                "warning_text")
+            self.tabs_pile.contents.insert(2, (banner, self.tabs_pile.options('pack')))
+            self._notice_shown = True
+            self.body_rows = max(3, self.body_rows - 1)
+            self.box_adapter.height = self.body_rows
+        except Exception:
+            pass
+
+    def _focus_interface(self, name):
+        try:
+            if self.iface_view_mode == "grid":
+                for i, t in enumerate(self.interface_tiles):
+                    if getattr(t, "name", None) == name:
+                        self.iface_grid.focus_position = i
+                        return
+            else:
+                body = self.box_adapter._original_widget.body
+                for i, w in enumerate(body):
+                    if getattr(w, "name", None) == name:
+                        self.box_adapter._original_widget.focus_position = i
+                        return
+        except Exception:
+            pass
+
+    def toggle_focused_interface(self):
+        name = self._focused_interface_name()
+        if name is None:
+            return
+        interfaces = self.app.rns.config['interfaces']
+        if name not in interfaces:
+            return
+        iface = interfaces[name]
+        is_enabled = str(iface.get("enabled")).lower() not in ('false', 'off', 'no', '0') and \
+                     str(iface.get("interface_enabled")).lower() not in ('false', 'off', 'no', '0')
+        value = "false" if is_enabled else "true"
+        iface["interface_enabled"] = value
+        if "enabled" in iface:
+            iface["enabled"] = value
+        try:
+            self.app.rns.config.write()
+        except Exception:
+            return
+        self.mark_restart_pending()
+        self._build_interface_items()
+        self._rebuild_list()
+        self._focus_interface(name)
+        self.app.ui.main_display.update_active_sub_display()
+
+    def save_current_profile(self):
+        profiles = getattr(self.app, "interface_profiles", None)
+        if profiles is None:
+            return
+        n = len(profiles.enabled_set())
+        edit = ReadlineEdit(caption="Name: ")
+
+        def ok(_b):
+            val = edit.get_edit_text().strip()
+            self.dismiss_dialog()
+            if val:
+                profiles.save_current_as_profile(val)
+                self.show_interfaces()
+
+        pile = urwid.Pile([
+            urwid.Text("Save the %d currently enabled interface%s as a new profile." % (n, "" if n == 1 else "s"), align="left"),
+            urwid.Divider(),
+            edit,
+            urwid.Divider(),
+            urwid.Columns([
+                (urwid.WEIGHT, 0.45, urwid.Button("Save", on_press=ok)),
+                (urwid.WEIGHT, 0.1, urwid.Text("")),
+                (urwid.WEIGHT, 0.45, urwid.Button("Cancel", on_press=lambda _b: self.dismiss_dialog())),
+            ]),
+        ])
+        dialog = DialogLineBox(urwid.Filler(pile, valign="top"), parent=self, title="Save Current as Profile")
+        overlay = urwid.Overlay(
+            dialog, self.interfaces_display,
+            align="center", width=("relative", 60),
+            valign="middle", height=("relative", 45), min_width=44, min_height=9,
+        )
+        self.widget = overlay
+        self.app.ui.main_display.update_active_sub_display()
 
     def open_config_editor(self):
         import platform
@@ -3602,7 +4024,7 @@ class InterfaceDisplay:
 class InterfaceDisplayShortcuts:
     def __init__(self, app):
         self.app = app
-        self.default_shortcuts = "[C-a] Add [C-e] Edit [C-x] Remove [Enter] Show [C-t] Grid/Rows [C-w] Editor [Tab] Profiles"
+        self.default_shortcuts = "[C-a] Add [C-e] Edit [C-x] Remove [C-o] On/Off [Enter] Show [C-f] Filter [C-s] Save Profile [C-t] Grid/Rows [Tab] Profiles"
         self.current_shortcuts = self.default_shortcuts
         self.widget = urwid.AttrMap(
             urwid.Text(self.current_shortcuts),
@@ -3629,5 +4051,5 @@ class InterfaceDisplayShortcuts:
         self.update_shortcuts(edit_shortcuts)
 
     def set_profiles_tab_shortcuts(self):
-        profiles_shortcuts = "[Up/Down] Navigate [Space] Select Profile [C-a] New [C-e] Rename [C-x] Delete [Tab] Interfaces"
+        profiles_shortcuts = "[Space] Select [C-a] New [C-s] Save Current [C-e] Rename [C-x] Delete [Tab] Interfaces"
         self.update_shortcuts(profiles_shortcuts)

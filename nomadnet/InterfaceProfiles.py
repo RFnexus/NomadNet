@@ -130,6 +130,11 @@ class InterfaceProfiles:
         self.save()
         return pid
 
+    def save_current_as_profile(self, name):
+        pid = self.create(name)
+        self.set_members(pid, sorted(self.enabled_set()))
+        return pid
+
     def rename(self, pid, name):
         p = self.get(pid)
         if p is not None and name:
