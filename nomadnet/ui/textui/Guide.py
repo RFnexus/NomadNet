@@ -571,7 +571,31 @@ To add a new interface, press `!< Ctrl + A >`!. From here you can select which t
 `Ffff`! (!) Note:`! After adding or modifying interfaces, you will need to restart NomadNet or your Reticulum instance for changes to take effect.`f`b
 
 
+>Interface Profiles
+
+Interface profiles let you save different combinations of enabled interfaces and switch between them quickly. For example, you might keep a `!Home`! profile that uses a local AutoInterface, and a `!Travel`! profile that reaches out over a TCP gateway instead.
+
+Press `!< Tab >`! from the `![ Interfaces ]`! section to move between the `!Interfaces`! and `!Profiles`! tabs.
+
+To save your current set of enabled interfaces as a new profile, press `!< Ctrl + S >`!. To assign an interface to one or more profiles, edit it with `!< Ctrl + E >`! and use the profile checkboxes in the edit form. You can also toggle the selected interface on or off directly with `!< Ctrl + O >`!, and filter the list by All, Enabled or Disabled with `!< Ctrl + F >`!.
+
+`Ffff`! (!) Note:`! Switching profiles changes which interfaces are enabled, so a restart of NomadNet or your Reticulum instance is required for the change to take effect.`f`b
+
+
 >Interface Types
+
+Jump to a specific interface type:
+
+ `F79d`_`[AutoInterface`#autointerface]`_`f
+ `F79d`_`[TCPClientInterface`#tcpclientinterface]`_`f
+ `F79d`_`[TCPServerInterface`#tcpserverinterface]`_`f
+ `F79d`_`[UDPInterface`#udpinterface]`_`f
+ `F79d`_`[I2PInterface`#i2pinterface]`_`f
+ `F79d`_`[RNodeInterface`#rnodeinterface]`_`f
+ `F79d`_`[RNodeMultiInterface`#rnodemultiinterface]`_`f
+ `F79d`_`[SerialInterface`#serialinterface]`_`f
+ `F79d`_`[KISSInterface`#kissinterface]`_`f
+ `F79d`_`[PipeInterface`#pipeinterface]`_`f
 
 >>AutoInterface
 
